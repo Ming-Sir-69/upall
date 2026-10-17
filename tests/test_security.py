@@ -8,13 +8,24 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-from upall.util import atomic, clean, private_directory
+from upall.util import atomic, clean, private_directory, state_root
 
 
 class StateSecurityTests(unittest.TestCase):
+    def test_xdg_path_rules_and_host_override(self):
+        home = Path.home()
+        with patch.dict(os.environ, {"XDG_STATE_HOME":"relative-state"}, clear=True):
+            self.assertEqual(state_root(), home / ".local/state/upall")
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch.dict(os.environ, {"XDG_STATE_HOME":temporary}, clear=True):
+                self.assertEqual(state_root(), Path(temporary) / "upall")
+            with patch.dict(os.environ, {"XDG_STATE_HOME":"ignored", "UPALL_LOG_ROOT":temporary}, clear=True):
+                self.assertEqual(state_root(), Path(temporary))
+
     def test_private_permissions_and_atomic_replacement(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = private_directory(Path(temporary) / "state")
