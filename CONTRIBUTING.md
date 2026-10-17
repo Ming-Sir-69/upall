@@ -16,6 +16,7 @@ For packaging, use uv build, then install the resulting wheel in an empty virtua
 
 ## Compatibility
 
+- Keep the public-module / private-host boundary. Public behavior and tests belong here; host deployment settings and private records belong in the consuming project. No bidirectional copying of the implementation. See docs/module-integration.md.
 - Check automatically; install only after an update action or --update.
 - Preserve Space/1 update, Enter/0 exit, 2 retry, 3 logs, full-width keys and legacy letter aliases.
 - Do not infer manager ownership only from a bin directory name. Unknown/local sources require manual handling.

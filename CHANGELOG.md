@@ -11,4 +11,5 @@
 - Isolate discovery/worker/PTY tests from real installations.
 - Store state in a private per-user directory with exclusive atomic report writes.
 - Add contribution, security and development documentation. Hosted Actions remain disabled.
+- Define extracted-module ownership, environment configuration, commit pinning, host acceptance and rollback conventions for larger consuming projects.
 
