@@ -12,7 +12,7 @@ from .discovery import TOOLS, DEMO_ROLES, SOURCE_LABELS, discover
 from .engine import Engine
 from .status import ACTIVE, FAILED, LABELS
 from .terminal import Terminal
-from .util import fit, private_directory
+from .util import fit, private_directory, state_root
 
 
 def plain(engine):
@@ -62,8 +62,7 @@ def main(argv=None):
     installations = discover(os.environ.get("UPALL_SEARCH_PATH"))
     if args.inventory:
         args.plain = True
-    root = Path(os.environ.get("UPALL_LOG_ROOT") or
-                Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "upall")
+    root = state_root()
     if args.demo and "UPALL_LOG_ROOT" not in os.environ:
         root = root / "demo"
     root = private_directory(root)
