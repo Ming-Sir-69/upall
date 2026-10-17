@@ -64,6 +64,17 @@ def private_directory(path):
     return path
 
 
+def state_root():
+    """Apply the host override, then XDG rules; relative XDG paths are invalid."""
+    override = os.environ.get("UPALL_LOG_ROOT")
+    if override:
+        return Path(override).expanduser().absolute()
+    base = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state")
+    if not base.is_absolute():
+        base = Path.home() / ".local/state"
+    return base / "upall"
+
+
 def tail(path, count=5, offset=0):
     try:
         with path.open("rb") as source:

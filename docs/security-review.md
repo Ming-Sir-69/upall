@@ -36,3 +36,7 @@ No real vendor upgrade was executed as a publication test.
 Programs selected from PATH and official updater scripts remain trusted executable code. UPALL is not a sandbox or signature-verification system for every upstream release. Logs may contain sensitive vendor output, even though UPALL does not read sign-in stores or API-key configuration. Real IME behavior, all install variants and platforms beyond the tested macOS environment remain outside the verified matrix.
 
 The first release keeps existing channel/version-verification behavior. Fast-moving channels and custom launchers need additional real-world validation before support can be widened. See SECURITY.md and the roadmap for the maintained scope.
+
+## 0.1.1 configuration follow-up
+
+The XDG specification requires absolute base-directory values. The previous state-path fallback accepted a relative XDG_STATE_HOME; version 0.1.1 ignores that invalid value and uses the home-directory fallback. The explicit UPALL_LOG_ROOT host override remains separate. A regression case covers relative/absolute XDG values and override precedence. The full nine-case unittest suite passed after this change.

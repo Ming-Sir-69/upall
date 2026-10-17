@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 — 2026-10-17
+
+- Align state configuration with XDG: ignore a relative XDG_STATE_HOME, while preserving the explicit host override.
+- Add a regression test for default/XDG/host configuration precedence.
+- Document the official specifications and same-scenario extraction guidance behind repository, package, version and host integration decisions.
+
 ## 0.1.0 — 2026-10-17
 
 - Publish the personal updater as an installable, dependency-free Python package.

@@ -14,7 +14,7 @@ It is an extracted module from a larger private workspace. This repository owns 
 
 ## Status
 
-Version 0.1.0 is an early macOS release. The UI and integration tests run on macOS; other POSIX environments are experimental. Native Windows is not supported. There are no claims of universal package-manager support.
+Version 0.1.x is an early macOS release. The UI and integration tests run on macOS; other POSIX environments are experimental. Native Windows is not supported. There are no claims of universal package-manager support.
 
 ## Try it
 
@@ -107,4 +107,8 @@ GitHub Actions is intentionally disabled for this repository. Checks and package
 Interaction ideas were informed by [Topgrade](https://github.com/topgrade-rs/topgrade), [Gum](https://github.com/charmbracelet/gum), [Bubbles](https://github.com/charmbracelet/bubbles), and [Rich](https://github.com/Textualize/rich). Installation-provenance research included [CC Switch](https://github.com/farion1231/cc-switch). UPALL's implementation is original; it does not embed their source.
 
 [MIT](LICENSE).
+
+## Why these conventions
+
+[Standards and official practice](docs/standards.md) maps the extraction and host-integration decisions to GitHub, PyPA, uv, XDG and Semantic Versioning sources. It separates formal specifications from project-specific choices.
 
