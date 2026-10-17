@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "upall-cli"
+version = "0.1.0"
+description = "Discover AI CLIs, check versions, and update explicitly from a Chinese-first terminal UI."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Ming-Sir-69" }]
+keywords = ["cli", "tui", "updater", "ai", "macos"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+dependencies = []
+
+[project.scripts]
+upall = "upall.__main__:entrypoint"
+upcheck = "upall.__main__:entrypoint"
+
+[project.urls]
+Homepage = "https://github.com/Ming-Sir-69/upall"
+Repository = "https://github.com/Ming-Sir-69/upall"
+Issues = "https://github.com/Ming-Sir-69/upall/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
