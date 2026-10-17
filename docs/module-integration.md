@@ -21,7 +21,8 @@ Use a separate UPALL checkout for module development. Install a pinned upstream 
 
 ~~~text
 private parent project
-  integration/upall.lock.json     # upstream URL, version, full commit, host acceptance
+  integration/requirements.txt    # PEP 508 direct reference pinned to a full commit
+  integration/deployment.json     # private host receipt, not a UPALL config format
   local shell/config adapter     # private values and stable command entry
            |
            +--> isolated upall-cli installation pinned to a full commit
@@ -41,7 +42,13 @@ upall --demo --json
 upall --list --json
 ~~~
 
-The lock should include the repository URL, module version and full commit SHA. A release tag is a human-readable reference; the commit is the immutable dependency identity. The parent lock is a host deployment record, not a configuration file that UPALL automatically reads.
+The pinned requirement should include the repository URL and full commit SHA. For example, a requirements file can contain a PEP 508 direct reference:
+
+~~~text
+upall-cli @ git+https://github.com/Ming-Sir-69/upall.git@COMMIT
+~~~
+
+The requirements-file container is a pip convention, not a universal lockfile standard. Keep the actual module version and host acceptance in a separate private deployment receipt. A release tag is a human-readable reference; the commit is the immutable dependency identity. UPALL does not automatically read or apply the host's dependency file or receipt.
 
 Use an editable installation only as an explicit development override. Normal host use should not silently follow changes to a local checkout or main. Restore a pinned install when development validation finishes.
 
