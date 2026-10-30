@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.0 — 2026-10-30
+
+- Return to the plain 0.3.x presentation: no per-tool glyphs, pixel portraits or brand colors; the table, exit summary and plain output use status-colored text only, as before the brand-mark experiments.
+
 ## 0.5.0 — 2026-10-30
 
 - Drop all icon artwork: tools are told apart by brand color alone. Tool labels now carry the brand color in the TUI, the exit summary and plain output, replacing the per-tool glyphs.

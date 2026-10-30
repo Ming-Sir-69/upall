@@ -116,9 +116,9 @@ with tempfile.TemporaryDirectory(prefix="upall-interface-") as tmp:
         assert "空格/1 更新" in frame and "2 重试" in frame and "3 日志" in frame
         view.key("3")
         view.selected = len(engine.jobs) - 1
-        frame = "\n".join(view.frame(80, 24))
-        assert "显示" in frame
-        assert upall.fit("ChatGPT", 11).strip() in frame and "›" in frame
+        frame = view.frame(80, 24)
+        assert "显示" in "\n".join(frame)
+        assert "› " + upall.fit("ChatGPT", 11).strip() in "\n".join(frame)
         view.selected = 0
         assert upall.clean("\x1b[31merror\x1b[0m\x1b]52;c;payload\x07\r") == "error"
         for key in ("\r", "\n", "0", "０", "\x1b", "q", "Q", "x", "X"):
@@ -139,11 +139,6 @@ with tempfile.TemporaryDirectory(prefix="upall-interface-polish-") as tmp:
             engine.update(role, status="CURRENT", current="1.2.3", latest="1.2.3")
         view = upall.Terminal(engine)
         view.color = True
-        view.truecolor = True
-        from upall.colors import BRAND_COLORS
-        assert set(BRAND_COLORS) == set(upall.TOOLS)
-        frame = "\n".join(view.frame(120, 40))
-        assert "\033[38;2;217;119;87m" in frame
         assert "\033[92m━" in "\n".join(view.frame(120, 40))
         engine.update("claude", status="UPDATE-FAILED", detail="命令退出码 1")
         assert "\033[91m━" in "\n".join(view.frame(120, 40))
@@ -172,11 +167,6 @@ with tempfile.TemporaryDirectory(prefix="upall-interface-polish-") as tmp:
             assert "╭" not in plain and "─" not in plain and "+" in plain
         finally:
             del os.environ["UPALL_ASCII"]
-        view.selected = list(upall.TOOLS).index("claude-desktop")
-        view.show_logs, view.logs_touched = True, True
-        art = view.frame(140, 40)
-        assert any("日志 · Claude Desktop" in line for line in art)
-        assert max(map(upall.width, art)) <= 140
         import contextlib
         import io
         from upall import cli as upall_cli
