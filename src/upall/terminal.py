@@ -70,7 +70,8 @@ class Terminal:
     def __init__(self, engine):
         self.engine = engine
         self.selected = 0
-        self.show_logs = True
+        self.show_logs = False
+        self.logs_touched = False
         self.offset = 0
         self.hint = ""
         self.color = "NO_COLOR" not in os.environ
@@ -119,6 +120,8 @@ class Terminal:
         done = sum(job.status not in ACTIVE for job in jobs)
         ended = self.engine.done()
         failed = sum(job.status in FAILED for job in jobs)
+        if failed and not self.show_logs and not self.logs_touched:
+            self.show_logs = True
         mode = "安装检测" if self.engine.mode == "inventory" else "自动检查版本" if self.engine.mode == "check" else "检查并更新"
         if self.engine.args.demo:
             mode += " · 演示"
@@ -237,6 +240,7 @@ class Terminal:
             self.selected = (self.selected + 1) % len(jobs)
             self.offset = 0
         elif key.lower() in ("3", "l"):
+            self.logs_touched = True
             self.show_logs = not self.show_logs
         elif key == "[":
             self.offset = min(1000, self.offset + 3)

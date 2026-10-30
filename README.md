@@ -71,7 +71,7 @@ The upcheck command is a compatibility alias for the same check-first flow. Redi
 
 ## Detection and updates
 
-The known catalog includes Claude Code, Codex, Kimi Code, Hermes, Gemini CLI, Grok Build, OpenCode, OpenClaw, Pi, MiniMax Code, and Claude Desktop.
+The known catalog includes Claude Code, Codex, Kimi Code, Hermes, Gemini CLI, Grok Build, OpenCode, OpenClaw, Pi, MiniMax Code, Claude Desktop, and the ChatGPT desktop app.
 
 - Missing tools stay missing. This is an updater, not an automatic installer.
 - npm and Homebrew installations use the detected package and manager prefix. A command under a Homebrew bin directory can still belong to npm.
