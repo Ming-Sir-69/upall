@@ -9,7 +9,15 @@ import termios
 import time
 import tty
 from .status import ACTIVE, FAILED, LABELS
-from .util import fit, tail
+from .util import fit, tail, width
+
+
+def supports_unicode():
+    """Box drawing and braille need a UTF-8 locale; anything else falls back to ASCII."""
+    if os.environ.get("UPALL_ASCII") == "1" or os.environ.get("TERM") == "dumb":
+        return False
+    locale = " ".join(os.environ.get(name, "") for name in ("LC_ALL", "LC_CTYPE", "LANG")).lower()
+    return "utf" in locale or not locale.strip()
 
 
 class KeyDecoder:
@@ -67,6 +75,39 @@ class Terminal:
         self.hint = ""
         self.color = "NO_COLOR" not in os.environ
         self.tick = 0
+        self.unicode = supports_unicode()
+        self.spinners = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏" if self.unicode else "|/-\\"
+        self.bars = ("━", "─") if self.unicode else ("#", "-")
+        self.icons = ({"failed": "×", "manual": "!", "available": "↑", "done": "✓", "skipped": "–"}
+                      if self.unicode else
+                      {"failed": "x", "manual": "!", "available": "^", "done": "+", "skipped": "-"})
+        self.pointer = "›" if self.unicode else ">"
+        self.box = ("╭", "╮", "╰", "╯", "─", "│") if self.unicode else ("+", "+", "+", "+", "-", "|")
+        self.last_lines = {}
+
+    def last_line(self, role):
+        """Most recent non-command log line, cached by mtime to keep frames cheap."""
+        path = self.engine.log_dir / f"{role}.log"
+        try:
+            stamp = path.stat().st_mtime_ns
+        except OSError:
+            return ""
+        cached = self.last_lines.get(role)
+        if cached and cached[0] == stamp:
+            return cached[1]
+        lines = [line for line in tail(path, 6) if not line.startswith("$ ")]
+        line = lines[-1] if lines else ""
+        self.last_lines[role] = (stamp, line)
+        return line
+
+    def focus_failed(self):
+        """After a round ends, jump the selection to the first failed job."""
+        for index, job in enumerate(self.engine.snapshot()):
+            if job.status in FAILED:
+                if self.selected != index:
+                    self.selected = index
+                    self.offset = 0
+                return
 
     def paint(self, text, color):
         return f"\033[{color}m{text}\033[0m" if self.color else text
@@ -84,12 +125,14 @@ class Terminal:
         bar_size = max(5, min(24, inner - 31))
         filled = int(done / len(jobs) * bar_size)
         elapsed = int((self.engine.finished or time.monotonic()) - self.engine.started)
+        fill, empty = self.bars
+        bar_color = "91" if failed else "92" if done == len(jobs) else "96"
         content = [("UPALL · 工具更新", "1;96"), (f"{mode} · {len(jobs)} 个工具 · 最多 {min(3, len(jobs))} 项并行", "90"),
-                   (f"{'━' * filled}{'─' * (bar_size - filled)}  {done}/{len(jobs)} 完成 · {elapsed}s", "96"), ("", "0")]
+                   (f"{fill * filled}{empty * (bar_size - filled)}  {done}/{len(jobs)} 完成 · {elapsed}s", bar_color), ("", "0")]
         wide = inner >= 68
         if wide:
             content.append((f"  {fit('工具', 11)} {fit('当前版本', 15)} {fit('目标版本', 15)} 状态", "90"))
-        spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[self.tick % 10]
+        spinner = self.spinners[self.tick % len(self.spinners)]
         row_height = 2 if not wide and rows >= 18 else 1
         capacity = max(1, (rows - (16 if self.show_logs and rows >= 18 else 12)) // row_height)
         if rows < 12:
@@ -97,13 +140,22 @@ class Terminal:
         first = max(0, min(self.selected - capacity // 2, len(jobs) - capacity))
         visible = list(enumerate(jobs))[first:first + capacity]
         for index, job in visible:
-            icon = spinner if job.status in ACTIVE else "×" if job.status in FAILED else "!" if job.status == "MANUAL" else "↑" if job.status == "AVAILABLE" else "✓" if job.status != "SKIPPED" else "–"
+            icon = (spinner if job.status in ACTIVE else self.icons["failed"] if job.status in FAILED
+                    else self.icons["manual"] if job.status == "MANUAL" else self.icons["available"]
+                    if job.status == "AVAILABLE" else self.icons["done"] if job.status != "SKIPPED"
+                    else self.icons["skipped"])
             status = f"{icon} {LABELS[job.status]}"
             color = "91" if job.status in FAILED else "93" if job.status in {"AVAILABLE", "UPDATING", "VERIFYING", "MANUAL"} else "92" if job.status in {"CURRENT", "UPDATED", "INSTALLED"} else "90" if job.status == "SKIPPED" else "96"
-            prefix = "›" if index == self.selected else " "
+            prefix = self.pointer if index == self.selected else " "
             if wide:
-                text = f"{prefix} {fit(job.label, 11)} {fit(job.current, 15)} {fit(job.latest, 15)} {status} · {int(job.elapsed())}s"
-                content.append((text, color))
+                main = f"{prefix} {fit(job.label, 11)} {fit(job.current, 15)} {fit(job.latest, 15)} {status} · {int(job.elapsed())}s"
+                room = inner - width(main) - 3
+                if job.status in ACTIVE | FAILED and room >= 8:
+                    last = self.last_line(job.role)
+                    if last:
+                        content.append(([(main, color), (" · " + fit(last, room), "90")], ""))
+                        continue
+                content.append((main, color))
             else:
                 content.append((f"{prefix} {job.label}  {status} · {int(job.elapsed())}s", color))
                 if rows >= 18:
@@ -113,7 +165,10 @@ class Terminal:
         content.append(("", "0"))
         chosen = jobs[self.selected]
         if self.show_logs and rows >= 18:
-            content.append((f"日志 · {chosen.label}   [ / ] 滚动", "96"))
+            header = f"日志 · {chosen.label}   [ / ] 滚动"
+            if self.offset:
+                header += " · 已暂停跟随，] 回到底部"
+            content.append((header, "96"))
             count = max(1, min(5, rows - len(content) - 7))
             lines = tail(self.engine.log_dir / f"{chosen.role}.log", count, self.offset)
             content.extend((line, "90") for line in (lines or ["等待输出…"]))
@@ -136,15 +191,23 @@ class Terminal:
             content.append((help_text, "90"))
         if rows < 12:
             content = [content[0], content[2],
-                       *[(f"{'›' if i == self.selected else ' '} {job.label} · {LABELS[job.status]}", "96") for i, job in visible],
+                       *[(f"{self.pointer if i == self.selected else ' '} {job.label} · {LABELS[job.status]}", "96") for i, job in visible],
                        content[-1]]
         limit = max(1, rows - 3)
         if len(content) > limit:
             content = content[:max(0, limit - 1)] + [content[-1]]
-        border = "─" * (inner + 2)
-        lines = [self.paint("╭" + border + "╮", "90")]
-        lines += [self.paint("│ ", "90") + self.paint(fit(text, inner), color) + self.paint(" │", "90") for text, color in content]
-        lines.append(self.paint("╰" + border + "╯", "90"))
+        top_left, top_right, bottom_left, bottom_right, horizontal, vertical = self.box
+        border = horizontal * (inner + 2)
+        lines = [self.paint(top_left + border + top_right, "90")]
+        for text, color in content:
+            if isinstance(text, list):
+                used = sum(width(segment) for segment, _ in text)
+                body = "".join(self.paint(segment, segment_color) for segment, segment_color in text)
+                body += " " * max(0, inner - used)
+            else:
+                body = self.paint(fit(text, inner), color)
+            lines.append(self.paint(vertical + " ", "90") + body + self.paint(" " + vertical, "90"))
+        lines.append(self.paint(bottom_left + border + bottom_right, "90"))
         return lines
 
     def draw(self):
@@ -208,6 +271,7 @@ class Terminal:
                 if self.engine.done() and not saved:
                     self.engine.save()
                     saved = True
+                    self.focus_failed()
                 if self.engine.stop.is_set():
                     break
                 self.draw()

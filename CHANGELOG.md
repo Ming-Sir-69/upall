@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0 — 2026-10-30
+
+- Print a grouped static summary (status, versions, elapsed time, failure detail) after the interactive UI exits, so results stay in the terminal scrollback and in unattended logs.
+- Focus the first failed tool automatically when a round ends, and mark the log pane as paused while it is scrolled back.
+- Color the overall progress bar by outcome (failures turn it red, a fully finished run turns it green) and inline each active or failed tool's latest log line into wide rows.
+- Fall back to ASCII borders, spinners and status icons outside UTF-8 locales or when `UPALL_ASCII=1`.
+
 ## 0.1.1 — 2026-10-17
 
 - Align state configuration with XDG: ignore a relative XDG_STATE_HOME, while preserving the explicit host override.

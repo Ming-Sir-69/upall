@@ -11,7 +11,7 @@ from . import __version__
 from .discovery import TOOLS, DEMO_ROLES, SOURCE_LABELS, discover
 from .engine import Engine
 from .status import ACTIVE, FAILED, LABELS
-from .terminal import Terminal
+from .terminal import Terminal, supports_unicode
 from .util import fit, private_directory, state_root
 
 
@@ -37,6 +37,34 @@ def plain(engine):
             print(f"{fit(job.label + ' [' + job.role + ']', 32)} {fit(status, 12)} {fit(job.current, 14)} {SOURCE_LABELS[job.source]}")
             if job.installed:
                 print("  " + job.path + (" · " + job.detail if job.detail else ""))
+
+
+def summary(engine, log_dir):
+    """Static end-of-run digest that stays in the scrollback after the TUI exits."""
+    jobs = engine.snapshot()
+    total = int((engine.finished or time.monotonic()) - engine.started)
+    failed = sum(job.status in FAILED for job in jobs)
+    marks = ({"bad": "×", "done": "✓", "wait": "!", "skip": "–"} if supports_unicode()
+             else {"bad": "x", "done": "+", "wait": "!", "skip": "-"})
+    color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
+
+    def paint(text, code):
+        return f"\033[{code}m{text}\033[0m" if color else text
+
+    order = ([(job, marks["bad"], "91") for job in jobs if job.status in FAILED] +
+             [(job, marks["done"], "92") for job in jobs if job.status in {"UPDATED", "INSTALLED", "CURRENT"}] +
+             [(job, marks["wait"], "93") for job in jobs if job.status in {"AVAILABLE", "MANUAL"}] +
+             [(job, marks["skip"], "90") for job in jobs if job.status not in FAILED | {"UPDATED", "INSTALLED", "CURRENT", "AVAILABLE", "MANUAL"}])
+    print()
+    print(paint(f"UPALL · 结果摘要 · {len(jobs)} 项 · 失败 {failed} 项 · 总耗时 {total}s", "1"))
+    for job, mark, code in order:
+        versions = job.current if job.current == job.latest else f"{job.current} → {job.latest}"
+        seconds = f" · {int(job.elapsed())}s" if job.elapsed() else ""
+        line = f"{mark} {job.label}  {LABELS[job.status]} · {versions}{seconds}"
+        if job.detail:
+            line += f" · {job.detail}"
+        print(paint(line, code))
+    print(paint(f"日志 {log_dir}", "90"))
 
 
 def main(argv=None):
@@ -123,10 +151,9 @@ def main(argv=None):
                 signal.signal(sig, handler)
         if args.json:
             print(json.dumps(engine.report(), ensure_ascii=False))
+        elif interactive:
+            summary(engine, log_dir)
         else:
             jobs = engine.snapshot()
-            if interactive:
-                for job in jobs:
-                    print(f"{job.label}: {LABELS[job.status]} · {job.current} → {job.latest}")
             print(f"完成 {len(jobs)} 项 · 失败 {sum(job.status in FAILED for job in jobs)} 项 · 日志 {log_dir}")
         return 130 if engine.stop.is_set() else int(any(job.status in FAILED for job in engine.snapshot()))
