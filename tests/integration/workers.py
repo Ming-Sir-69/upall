@@ -274,3 +274,79 @@ with tempfile.TemporaryDirectory(prefix="upall-desktop-feed-") as tmp:
     finally:
         engine.pool.shutdown()
 print("PASS: Sparkle appcast parsing and rejection of malformed feed metadata")
+
+import io
+import plistlib
+import zipfile
+
+
+def fake_desktop(root, version="26.1"):
+    bundle = root / "ChatGPT.app"
+    (bundle / "Contents").mkdir(parents=True)
+    (bundle / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleShortVersionString": version}))
+    installations = {"chatgpt": Installation("chatgpt", str(bundle), "desktop",
+                                             version=version, reason="由桌面应用自身更新")}
+    engine = Engine(SimpleNamespace(check=True, demo=False, inventory=False), ["chatgpt"], root / "logs", installations)
+    engine.trash_dir = root / "Trash"
+    engine.trash_dir.mkdir()
+    engine.desktop_running = lambda name: False
+    feed = {"version": "26.2", "url": "https://persistent.oaistatic.com/codex-app-prod/fake.zip",
+            "sha256": "", "size": 0}
+    def latest(role, found):
+        engine.desktop_feeds[role] = feed
+        return feed["version"]
+    engine.desktop_latest = latest
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("ChatGPT.app/Contents/Info.plist", plistlib.dumps({"CFBundleShortVersionString": "26.2"}))
+    feed["size"] = len(buffer.getvalue())
+    return engine, bundle, feed, buffer.getvalue()
+
+
+def finish(engine, install=False):
+    engine.start(install=install)
+    while not engine.done():
+        time.sleep(0.02)
+    return engine.snapshot()[0]
+
+
+with tempfile.TemporaryDirectory(prefix="upall-desktop-available-") as tmp:
+    engine, _, _, _ = fake_desktop(Path(tmp))
+    try:
+        job = finish(engine)
+        assert job.status == "AVAILABLE" and job.latest == "26.2", (job.status, job.detail)
+    finally:
+        engine.pool.shutdown()
+print("PASS: a desktop release with a trustworthy package URL becomes AVAILABLE")
+
+with tempfile.TemporaryDirectory(prefix="upall-desktop-install-") as tmp:
+    engine, bundle, feed, payload = fake_desktop(Path(tmp))
+    try:
+        real_command = engine.command
+        def fake_command(role, command, **kwargs):
+            if command[0] == "curl":
+                Path(command[-1]).write_bytes(payload)
+                return ""
+            return real_command(role, command, **kwargs)
+        engine.command = fake_command
+        job = finish(engine, install=True)
+        assert job.status == "UPDATED" and job.current == "26.2", (job.status, job.detail)
+        assert plistlib.loads((bundle / "Contents/Info.plist").read_bytes())["CFBundleShortVersionString"] == "26.2"
+        assert list(engine.trash_dir.glob("ChatGPT.app.upall-*")), "old bundle must be kept in the Trash"
+    finally:
+        engine.pool.shutdown()
+print("PASS: desktop update swaps the bundle from the official zip and keeps the old one in the Trash")
+
+with tempfile.TemporaryDirectory(prefix="upall-desktop-hash-") as tmp:
+    import hashlib
+    engine, bundle, feed, payload = fake_desktop(Path(tmp))
+    try:
+        feed["sha256"] = hashlib.sha256(b"different").hexdigest()
+        engine.command = lambda role, command, **kwargs: (Path(command[-1]).write_bytes(payload) or "")
+        job = finish(engine, install=True)
+        assert job.status == "UPDATE-FAILED" and "sha256" in job.detail, (job.status, job.detail)
+        assert plistlib.loads((bundle / "Contents/Info.plist").read_bytes())["CFBundleShortVersionString"] == "26.1"
+        assert not list(engine.trash_dir.glob("ChatGPT.app.upall-*")), "failed verification must not touch the app"
+    finally:
+        engine.pool.shutdown()
+print("PASS: a sha256 mismatch aborts the desktop update without touching the installed app")

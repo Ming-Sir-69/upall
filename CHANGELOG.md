@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.0 — 2026-10-30
+
+- Desktop applications can now be updated directly with Space/1: a newer Claude Desktop or ChatGPT release with a trustworthy package URL becomes AVAILABLE instead of a manual hint. upall downloads the app's own official update package, verifies it (sha256 for Claude; exact size plus a pinned vendor download host for both), swaps the application bundle, and confirms the new version afterwards.
+- Updating a desktop app requires it to be quit first (a running app is left untouched with a retry hint). The previous bundle is moved to the Trash, never deleted.
+
 ## 0.7.0 — 2026-10-30
 
 - Desktop applications now check for updates: Claude Desktop via its releases.claude.com feed, ChatGPT via its Sparkle appcast. Up-to-date apps report CURRENT with the feed version; a newer release becomes a manual entry asking to update inside the app. upall still never installs desktop updates itself, and inventory mode stays offline.
