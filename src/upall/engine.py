@@ -1,23 +1,17 @@
 """Concurrent version checks and explicit update execution."""
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
-import hashlib
 import json
 import os
 from pathlib import Path
-import platform
-import plistlib
 import re
 import shlex
-import shutil
 import signal
 import subprocess
 import tempfile
 import threading
 import time
-import urllib.parse
-import uuid
-from .discovery import TOOLS, PACKAGES, DESKTOP_APPS, Installation, discover
+from .discovery import TOOLS, PACKAGES, Installation, discover
 from .models import Job
 from .status import LABELS
 from .util import atomic, clean, private_directory
@@ -50,8 +44,6 @@ class Engine:
         self.started = time.monotonic()
         self.finished = 0
         self.install_locks = {}
-        self.desktop_feeds = {}
-        self.trash_dir = Path.home() / ".Trash"
 
     def update(self, role, **values):
         with self.guard:
@@ -116,10 +108,6 @@ class Engine:
             return text
 
     def current_version(self, role):
-        found = self.installations[role]
-        if found.source == "desktop":
-            with (Path(found.path) / "Contents/Info.plist").open("rb") as file:
-                return str(plistlib.load(file).get("CFBundleShortVersionString", ""))
         if role == "hermes":
             result = self.command(role, ["git", "-C", str(self.hermes_root), "rev-parse", "--short=8", "HEAD"], capture=True)
             if not re.fullmatch(r"[0-9a-f]{8,40}", result):
@@ -133,8 +121,6 @@ class Engine:
 
     def latest_version(self, role):
         found = self.installations[role]
-        if found.source == "desktop":
-            return self.desktop_latest(role, found)
         if found.source == "brew":
             data = json.loads(self.command(role, [found.manager, "info", "--json=v2",
                 "--cask" if found.cask else "--formula", found.package], capture=True, timeout=60))
@@ -169,104 +155,6 @@ class Engine:
             raise CommandError("未读到有效的最新版本")
         return output
 
-    def desktop_latest(self, role, found):
-        """Read-only check of a desktop app's own update feed. Each request uses
-        a fresh anonymous id; nothing identifying is persisted. The feed's
-        package metadata is kept for a possible explicit update; the download
-        URL is only accepted on the vendor's own host."""
-        feed = {"version": "", "url": "", "sha256": "", "size": 0}
-        if role == "claude-desktop":
-            url = ("https://releases.claude.com/api/desktop/darwin/universal/squirrel/update"
-                   f"?device_id={uuid.uuid4()}&version={urllib.parse.quote(found.version)}"
-                   f"&os_version={platform.mac_ver()[0]}")
-            data = json.loads(self.command(role, ["curl", "-fsSL", "--retry", "2", "--retry-delay", "1",
-                                                  "--retry-all-errors", "--connect-timeout", "10",
-                                                  "--max-time", "20", url], capture=True, timeout=75))
-            feed["version"] = data.get("currentRelease", "")
-            package = (data.get("releases") or [{}])[0].get("updateTo", {})
-            feed.update(url=package.get("url", ""), sha256=package.get("sha256", ""),
-                        size=package.get("size", 0))
-            host = "downloads.claude.ai"
-        else:  # ChatGPT's Sparkle appcast
-            url = ("https://updates.oaistatic.com/codex/app/appcast"
-                   f"?installation_id={uuid.uuid4()}&arch={platform.machine()}"
-                   f"&app_version={urllib.parse.quote(found.version)}")
-            output = self.command(role, ["curl", "-fsSL", "--retry", "2", "--retry-delay", "1",
-                                         "--retry-all-errors", "--connect-timeout", "10",
-                                         "--max-time", "20", url], capture=True, timeout=75)
-            match = re.search(r"<sparkle:shortVersionString>([^<]+)</sparkle:shortVersionString>", output)
-            feed["version"] = match.group(1) if match else ""
-            enclosure = re.search(r'<enclosure url="([^"]+)" length="(\d+)"', output)
-            if enclosure:
-                feed.update(url=enclosure.group(1), size=int(enclosure.group(2)))
-            host = "persistent.oaistatic.com"
-        if not re.fullmatch(r"\d+(\.\d+){1,3}", feed["version"] or ""):
-            raise CommandError("未读到有效的最新版本")
-        parsed = urllib.parse.urlparse(feed["url"])
-        if parsed.scheme != "https" or parsed.hostname != host:
-            feed["url"] = ""  # untrusted package location: manual update only
-        self.desktop_feeds[role] = feed
-        return feed["version"]
-
-    def desktop_running(self, bundle):
-        """True while any process belongs to the app bundle, helpers included."""
-        return subprocess.run(["pgrep", "-f", f"{bundle}.app"], capture_output=True).returncode == 0
-
-    def install_desktop(self, role, found):
-        """Update a desktop app with its own official update package.
-
-        Claude packages carry a sha256; ChatGPT's feed only offers a Sparkle
-        signature (not verifiable with the stdlib), so exact size and host
-        pinning are the checks there. The old bundle goes to the Trash,
-        never deleted; a running app is left untouched.
-        """
-        label, bundle = DESKTOP_APPS[role]
-        feed = self.desktop_feeds.get(role) or {}
-        if self.desktop_running(bundle):
-            raise CommandError(f"请先退出 {label}，再按 2 重试")
-        app_path = Path(found.path)
-        archive = self.log_dir / f"{role}.zip"
-        extract = self.log_dir / f"{role}-extract"
-        aria2 = shutil.which("aria2c")
-        if aria2:
-            # Segmented multi-connection download (the aria2/IDM approach):
-            # single connections to the vendor CDN are throttled, segments
-            # are not; the .aria2 control file makes retries resumable.
-            command = [aria2, "-x8", "-s8", "-k1M", "--file-allocation=none",
-                       "--max-tries=3", "--retry-wait=2", "--connect-timeout=20",
-                       "--show-console-readout=false", "--summary-interval=5",
-                       "--dir", str(self.log_dir), "--out", archive.name, feed["url"]]
-            self.command(role, command, timeout=1800)
-        else:
-            self.command(role, ["curl", "-fsSL", "--retry", "3", "--retry-delay", "2", "--retry-all-errors",
-                                "-C", "-", "--connect-timeout", "20", "--max-time", "900",
-                                feed["url"], "-o", str(archive)], timeout=4000)
-        size = archive.stat().st_size
-        if feed.get("size") and size != feed["size"]:
-            raise CommandError(f"更新包大小不符：{size} != {feed['size']}")
-        if feed.get("sha256"):
-            digest = hashlib.sha256()
-            with archive.open("rb") as file:
-                for chunk in iter(lambda: file.read(1 << 20), b""):
-                    digest.update(chunk)
-            if digest.hexdigest() != feed["sha256"]:
-                raise CommandError("更新包 sha256 校验失败")
-        shutil.rmtree(extract, ignore_errors=True)
-        self.command(role, ["ditto", "-x", "-k", str(archive), str(extract)], timeout=120)
-        unpacked = extract / f"{bundle}.app"
-        try:
-            with (unpacked / "Contents/Info.plist").open("rb") as file:
-                version = str(plistlib.load(file).get("CFBundleShortVersionString", ""))
-        except (OSError, ValueError, plistlib.InvalidFileException):
-            raise CommandError("更新包中未找到有效的应用") from None
-        if version != feed["version"]:
-            raise CommandError(f"更新包版本不符：{version}")
-        backup = self.trash_dir / f"{bundle}.app.upall-{time.strftime('%Y%m%d-%H%M%S')}"
-        self.command(role, ["mv", str(app_path), str(backup)])
-        self.command(role, ["ditto", str(unpacked), str(app_path)], timeout=300)
-        archive.unlink(missing_ok=True)
-        shutil.rmtree(extract, ignore_errors=True)
-
     def install(self, role):
         found = self.installations[role]
         key = (found.source, found.prefix) if found.source in ("brew", "npm") else ("tool", role)
@@ -282,9 +170,6 @@ class Engine:
 
     def install_one(self, role):
         found = self.installations[role]
-        if found.source == "desktop":
-            self.install_desktop(role, found)
-            return
         if found.source == "brew":
             self.command(role, [found.manager, "upgrade", "--cask" if found.cask else "--formula", found.package], timeout=1200)
             return
@@ -346,16 +231,10 @@ class Engine:
             if not found.installed:
                 self.update(role, status="SKIPPED", detail="未找到可执行命令")
                 return
-            if found.source == "desktop":
-                if not found.version:
-                    self.update(role, current="-", status="INSTALLED", detail=found.reason)
-                    return
-                current = found.version
-            else:
-                if not found.update_supported:
-                    self.update(role, status="MANUAL", detail=found.reason)
-                    return
-                current = self.current_version(role)
+            if not found.update_supported:
+                self.update(role, status="MANUAL", detail=found.reason)
+                return
+            current = self.current_version(role)
             self.update(role, current=current)
             if self.mode == "inventory":
                 self.update(role, status="INSTALLED")
@@ -370,11 +249,7 @@ class Engine:
                     latest = current
             self.update(role, latest=latest)
             if current == latest:
-                self.update(role, status="CURRENT", detail=found.reason if found.source == "desktop" else "")
-                return
-            if found.source == "desktop" and not (self.desktop_feeds.get(role) or {}).get("url"):
-                # No trustworthy package URL: desktop apps update themselves.
-                self.update(role, status="MANUAL", detail="请在应用内更新")
+                self.update(role, status="CURRENT")
                 return
             if not install:
                 self.update(role, status="AVAILABLE")

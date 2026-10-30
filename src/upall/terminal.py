@@ -85,27 +85,6 @@ class Terminal:
         self.pointer = "›" if self.unicode else ">"
         self.box = ("╭", "╮", "╰", "╯", "─", "│") if self.unicode else ("+", "+", "+", "+", "-", "|")
         self.last_lines = {}
-        self.download_samples = {}
-
-    def download_progress(self, role):
-        """Live desktop download readout from the archive's file size:
-        downloaded MB, feed-advertised total and a once-a-second speed sample."""
-        feed = self.engine.desktop_feeds.get(role) or {}
-        total = feed.get("size") or 0
-        try:
-            size = (self.engine.log_dir / f"{role}.zip").stat().st_size
-        except OSError:
-            return ""
-        now = time.monotonic()
-        previous = self.download_samples.get(role)
-        speed = ""
-        if not previous:
-            self.download_samples[role] = (now, size)
-        elif now - previous[0] >= 1:
-            rate = max(0, (size - previous[1]) / (now - previous[0]))
-            speed = f" · {rate / 1024:.0f}KB/s" if rate < 1048576 else f" · {rate / 1048576:.1f}MB/s"
-            self.download_samples[role] = (now, size)
-        return f"下载 {size / 1048576:.0f}" + (f"/{total / 1048576:.0f}MB" if total else "MB") + speed
 
     def last_line(self, role):
         """Most recent non-command log line, cached by mtime to keep frames cheap."""
@@ -182,8 +161,7 @@ class Terminal:
                 main = f"{prefix} {fit(job.label, label_w)} {fit(job.current, ver_w)} {fit(job.latest, ver_w)} {status} · {int(job.elapsed())}s"
                 room = inner - width(main) - 3
                 if job.status in ACTIVE | FAILED and room >= 8:
-                    last = self.download_progress(job.role) if job.status == "UPDATING" else ""
-                    last = last or self.last_line(job.role)
+                    last = self.last_line(job.role)
                     if last:
                         content.append(([(main, color), (" · " + fit(last, room), "90")], ""))
                         continue
