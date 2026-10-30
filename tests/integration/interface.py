@@ -115,12 +115,12 @@ with tempfile.TemporaryDirectory(prefix="upall-interface-") as tmp:
         frame = "\n".join(view.frame(120, 40))
         assert "空格/1 更新" in frame and "2 重试" in frame and "3 日志" in frame
         frame80 = "\n".join(view.frame(80, 24))
-        assert "Claude Desktop" in frame80, "labels must not be truncated at 80 columns"
+        assert "MiniMax Code" in frame80, "labels must not be truncated at 80 columns"
         view.key("3")
         view.selected = len(engine.jobs) - 1
         frame = view.frame(80, 24)
         assert "显示" in "\n".join(frame)
-        assert "› " + upall.fit("ChatGPT", 11).strip() in "\n".join(frame)
+        assert "› MiniMax Code" in "\n".join(frame)
         view.selected = 0
         assert upall.clean("\x1b[31merror\x1b[0m\x1b]52;c;payload\x07\r") == "error"
         for key in ("\r", "\n", "0", "０", "\x1b", "q", "Q", "x", "X"):
@@ -185,7 +185,7 @@ with tempfile.TemporaryDirectory(prefix="upall-interface-polish-") as tmp:
         with contextlib.redirect_stdout(output):
             upall_cli.summary(engine, Path(tmp))
         text = output.getvalue()
-        assert "结果摘要" not in text and "完成 12 项 · 失败 0 项" in text and "总耗时 7s" in text
+        assert "结果摘要" not in text and "完成 10 项 · 失败 0 项" in text and "总耗时 7s" in text
     finally:
         engine.pool.shutdown()
 print("PASS: bar state colors, inline log tail, follow hint, failure focus, ASCII fallback, static summary")
