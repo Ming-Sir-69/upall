@@ -327,6 +327,10 @@ with tempfile.TemporaryDirectory(prefix="upall-desktop-install-") as tmp:
             if command[0] == "curl":
                 Path(command[-1]).write_bytes(payload)
                 return ""
+            if Path(command[0]).name == "aria2c":
+                target = Path(command[command.index("--dir") + 1]) / command[command.index("--out") + 1]
+                target.write_bytes(payload)
+                return ""
             return real_command(role, command, **kwargs)
         engine.command = fake_command
         job = finish(engine, install=True)
@@ -342,7 +346,16 @@ with tempfile.TemporaryDirectory(prefix="upall-desktop-hash-") as tmp:
     engine, bundle, feed, payload = fake_desktop(Path(tmp))
     try:
         feed["sha256"] = hashlib.sha256(b"different").hexdigest()
-        engine.command = lambda role, command, **kwargs: (Path(command[-1]).write_bytes(payload) or "")
+        def fake_command(role, command, **kwargs):
+            if command[0] == "curl":
+                Path(command[-1]).write_bytes(payload)
+                return ""
+            if Path(command[0]).name == "aria2c":
+                target = Path(command[command.index("--dir") + 1]) / command[command.index("--out") + 1]
+                target.write_bytes(payload)
+                return ""
+            raise AssertionError("verification must fail before any other command runs")
+        engine.command = fake_command
         job = finish(engine, install=True)
         assert job.status == "UPDATE-FAILED" and "sha256" in job.detail, (job.status, job.detail)
         assert plistlib.loads((bundle / "Contents/Info.plist").read_bytes())["CFBundleShortVersionString"] == "26.1"
@@ -350,3 +363,19 @@ with tempfile.TemporaryDirectory(prefix="upall-desktop-hash-") as tmp:
     finally:
         engine.pool.shutdown()
 print("PASS: a sha256 mismatch aborts the desktop update without touching the installed app")
+
+from upall.terminal import Terminal
+
+with tempfile.TemporaryDirectory(prefix="upall-desktop-progress-") as tmp:
+    engine, _, feed, _ = fake_desktop(Path(tmp))
+    try:
+        feed["size"] = 50 * 1048576
+        engine.desktop_feeds["chatgpt"] = feed
+        view = Terminal(engine)
+        (engine.log_dir / "chatgpt.zip").write_bytes(b"x" * (5 * 1048576))
+        text = view.download_progress("chatgpt")
+        assert text.startswith("下载 5/50MB"), text
+        assert view.download_progress("codex") == "", "no archive, no progress"
+    finally:
+        engine.pool.shutdown()
+print("PASS: desktop download progress shows downloaded and total MB")

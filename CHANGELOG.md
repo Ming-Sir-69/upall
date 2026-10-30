@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.0 — 2026-10-30
+
+- Desktop packages now download with aria2c's segmented multi-connection transfers when it is installed (8 connections, resumable via its control file); single connections to the vendor CDN were throttled to KB/s while segments reach MB/s. The retrying curl downloader remains as the fallback.
+- Desktop updates show live download progress in the table (downloaded MB, feed-advertised total, once-a-second speed sample), so a slow or stuck transfer is visible instead of looking dead.
+
 ## 0.8.1 — 2026-10-30
 
 - Harden desktop downloads against flaky routes: retries with backoff, resume of partial downloads and a longer connect timeout replace the previous single-attempt download that died on the first SSL timeout. Update-feed checks get the same retry treatment.
