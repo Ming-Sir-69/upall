@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.0 — 2026-10-30
+
+- Drop all icon artwork: tools are told apart by brand color alone. Tool labels now carry the brand color in the TUI, the exit summary and plain output, replacing the per-tool glyphs.
+- Remove the log pane's pixelated app-icon portraits along with the offline icon-generation tooling.
+
 ## 0.4.0 — 2026-10-30
 
 - Give every tool a distinctive brand mark in its brand color (Claude Code's coral ✳, OpenAI green ❯, xAI 𝕏, π for Pi, and so on) across the TUI, the exit summary and plain output; truecolor terminals get exact colors, others get the nearest xterm-256 entry.

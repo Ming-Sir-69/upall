@@ -140,10 +140,10 @@ with tempfile.TemporaryDirectory(prefix="upall-interface-polish-") as tmp:
         view = upall.Terminal(engine)
         view.color = True
         view.truecolor = True
-        from upall.icons import BRAND
-        assert set(BRAND) == set(upall.TOOLS)
+        from upall.colors import BRAND_COLORS
+        assert set(BRAND_COLORS) == set(upall.TOOLS)
         frame = "\n".join(view.frame(120, 40))
-        assert "✳" in frame and "\033[38;2;217;119;87m" in frame
+        assert "\033[38;2;217;119;87m" in frame
         assert "\033[92m━" in "\n".join(view.frame(120, 40))
         engine.update("claude", status="UPDATE-FAILED", detail="命令退出码 1")
         assert "\033[91m━" in "\n".join(view.frame(120, 40))
@@ -169,13 +169,13 @@ with tempfile.TemporaryDirectory(prefix="upall-interface-polish-") as tmp:
         os.environ["UPALL_ASCII"] = "1"
         try:
             plain = "\n".join(upall.Terminal(engine).frame(80, 24))
-            assert "╭" not in plain and "─" not in plain and "+" in plain and "✳" not in plain
+            assert "╭" not in plain and "─" not in plain and "+" in plain
         finally:
             del os.environ["UPALL_ASCII"]
         view.selected = list(upall.TOOLS).index("claude-desktop")
         view.show_logs, view.logs_touched = True, True
         art = view.frame(140, 40)
-        assert any("▀" in line or "▄" in line for line in art)
+        assert any("日志 · Claude Desktop" in line for line in art)
         assert max(map(upall.width, art)) <= 140
         import contextlib
         import io
@@ -186,7 +186,7 @@ with tempfile.TemporaryDirectory(prefix="upall-interface-polish-") as tmp:
             upall_cli.summary(engine, Path(tmp))
         text = output.getvalue()
         assert "结果摘要" in text and "总耗时 7s" in text
-        assert "× ❯ Codex" in text and "✓ ✳ Claude Code" in text
+        assert "× Codex" in text and "✓ Claude Code" in text
         assert text.index("Codex") < text.index("Claude Code")
         engine.update("codex", status="CURRENT", detail="")
         output = io.StringIO()
