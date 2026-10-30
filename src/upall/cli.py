@@ -108,7 +108,7 @@ def main(argv=None):
             return 2
         roles = list(dict.fromkeys(args.tools)) or (list(TOOLS) if args.inventory or args.all else
                 list(DEMO_ROLES) if args.demo else [role for role, item in installations.items()
-                                                  if item.installed and item.source != "desktop"])
+                                                  if item.installed])
         if args.retry:
             try:
                 previous = json.loads((log_dir / "report.json").read_text())

@@ -232,7 +232,7 @@ class Engine:
                 self.update(role, status="SKIPPED", detail="未找到可执行命令")
                 return
             if found.source == "desktop":
-                self.update(role, current=found.version or "-", status="INSTALLED" if self.mode == "inventory" else "MANUAL", detail=found.reason)
+                self.update(role, current=found.version or "-", status="INSTALLED", detail=found.reason)
                 return
             if not found.update_supported:
                 self.update(role, status="MANUAL", detail=found.reason)
