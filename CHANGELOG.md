@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.1 — 2026-10-30
+
+- Harden desktop downloads against flaky routes: retries with backoff, resume of partial downloads and a longer connect timeout replace the previous single-attempt download that died on the first SSL timeout. Update-feed checks get the same retry treatment.
+- Size table columns to content and terminal width: tool names and versions keep their natural width when the frame allows it (Claude Desktop is no longer truncated at 80 columns), the label column shrinks first when space is tight, and the inline log tail uses the remaining room.
+
 ## 0.8.0 — 2026-10-30
 
 - Desktop applications can now be updated directly with Space/1: a newer Claude Desktop or ChatGPT release with a trustworthy package URL becomes AVAILABLE instead of a manual hint. upall downloads the app's own official update package, verifies it (sha256 for Claude; exact size plus a pinned vendor download host for both), swaps the application bundle, and confirms the new version afterwards.
