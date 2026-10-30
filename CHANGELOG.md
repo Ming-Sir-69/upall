@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.0 — 2026-10-30
+
+- Remove the desktop application module (by owner decision): Claude Desktop and ChatGPT leave the catalog, so upall is CLI-only again. The download speed of desktop packages was dominated by the local network route and the feature was not worth its complexity.
+- Content-sized table columns and the retrying download behavior for CLI tools are unchanged.
+
 ## 0.9.0 — 2026-10-30
 
 - Desktop packages now download with aria2c's segmented multi-connection transfers when it is installed (8 connections, resumable via its control file); single connections to the vendor CDN were throttled to KB/s while segments reach MB/s. The retrying curl downloader remains as the fallback.
