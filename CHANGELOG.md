@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0 — 2026-10-30
+
+- Add the ChatGPT desktop app to the inventory next to Claude Desktop; desktop applications stay read-only and update themselves.
+- Collapse by default: the exit summary prints one compact line when nothing failed and expands to the grouped digest only when failures exist; the log pane starts folded and unfolds on the first failure, while 3 still toggles it manually.
+
 ## 0.2.0 — 2026-10-30
 
 - Print a grouped static summary (status, versions, elapsed time, failure detail) after the interactive UI exits, so results stay in the terminal scrollback and in unattended logs.

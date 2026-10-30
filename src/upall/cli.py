@@ -44,6 +44,9 @@ def summary(engine, log_dir):
     jobs = engine.snapshot()
     total = int((engine.finished or time.monotonic()) - engine.started)
     failed = sum(job.status in FAILED for job in jobs)
+    if not failed:
+        print(f"UPALL · 完成 {len(jobs)} 项 · 失败 0 项 · 总耗时 {total}s · 日志 {log_dir}")
+        return
     marks = ({"bad": "×", "done": "✓", "wait": "!", "skip": "–"} if supports_unicode()
              else {"bad": "x", "done": "+", "wait": "!", "skip": "-"})
     color = sys.stdout.isatty() and "NO_COLOR" not in os.environ

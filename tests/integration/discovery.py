@@ -10,7 +10,7 @@ import tempfile
 
 RUNTIME = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(RUNTIME))
-from upall.discovery import TOOLS, classify, discover
+from upall.discovery import TOOLS, classify, desktop_app, discover
 
 def executable(path, text="#!/bin/sh\nexit 0\n"):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -84,9 +84,17 @@ with tempfile.TemporaryDirectory(prefix="upall-discovery-") as tmp:
     assert inventory["codex"].installed
     assert not inventory["claude"].installed  # Explicit search path does not fall through to another install.
     assert not inventory["claude-desktop"].installed
-    assert set(inventory) == set(TOOLS) and len(inventory) == 11
+    assert set(inventory) == set(TOOLS) and len(inventory) == 12
     empty = discover(search_path=str(root / "empty"), home=home)
     assert all(not item.installed for item in empty.values())
+    bundle = home / "Applications/ChatGPT.app/Contents"
+    bundle.mkdir(parents=True)
+    import plistlib
+    (bundle / "Info.plist").write_bytes(plistlib.dumps({"CFBundleShortVersionString": "1.2026.1"}))
+    app = desktop_app("chatgpt", home, system_dir=root / "no-apps")
+    assert app.installed and app.version == "1.2026.1" and app.source == "desktop"
+    missing = desktop_app("chatgpt", root / "nowhere", system_dir=root / "no-apps")
+    assert not missing.installed and missing.reason == "未找到 ChatGPT 桌面应用"
 print("PASS: npm/native/brew/local/unknown identities, stable channel, legacy namespace, bounded detection")
 
 with tempfile.TemporaryDirectory(prefix="upall-empty-") as tmp:
@@ -96,7 +104,7 @@ with tempfile.TemporaryDirectory(prefix="upall-empty-") as tmp:
                             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=5)
     assert result.returncode == 0, result.stderr
     report = json.loads(result.stdout)
-    assert len(report["jobs"]) == 11
+    assert len(report["jobs"]) == 12
     assert all(job["status"] == "SKIPPED" for job in report["jobs"])
     assert not (Path(tmp) / "latest/report.json").exists(), "inventory replaced the last update report"
     result = subprocess.run([sys.executable, str(script), "--json"], env=env,
