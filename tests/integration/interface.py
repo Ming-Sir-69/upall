@@ -131,6 +131,49 @@ with tempfile.TemporaryDirectory(prefix="upall-interface-") as tmp:
         engine.pool.shutdown()
 print("PASS: wide/narrow/short layouts, Chinese widths, control-sequence filtering")
 
+with tempfile.TemporaryDirectory(prefix="upall-interface-polish-") as tmp:
+    engine = upall.Engine(SimpleNamespace(check=False, demo=True), list(upall.TOOLS), Path(tmp))
+    try:
+        for role in upall.TOOLS:
+            engine.update(role, status="CURRENT", current="1.2.3", latest="1.2.3")
+        view = upall.Terminal(engine)
+        view.color = True
+        assert "\033[92m━" in "\n".join(view.frame(120, 40))
+        engine.update("claude", status="UPDATE-FAILED", detail="命令退出码 1")
+        assert "\033[91m━" in "\n".join(view.frame(120, 40))
+        (Path(tmp) / "claude.log").write_text("$ cmd\npartial output line\n")
+        assert "partial output line" in "\n".join(view.frame(120, 40))
+        view.offset = 3
+        assert "已暂停跟随" in "\n".join(view.frame(120, 40))
+        view.selected, view.offset = 1, 5
+        view.focus_failed()
+        assert view.selected == 0 and view.offset == 0
+        engine.update("claude", status="CURRENT", detail="")
+        engine.update("codex", status="UPDATE-FAILED")
+        view.selected = 0
+        view.focus_failed()
+        assert view.selected == list(upall.TOOLS).index("codex")
+        os.environ["UPALL_ASCII"] = "1"
+        try:
+            plain = "\n".join(upall.Terminal(engine).frame(80, 24))
+            assert "╭" not in plain and "─" not in plain and "+" in plain
+        finally:
+            del os.environ["UPALL_ASCII"]
+        import contextlib
+        import io
+        from upall import cli as upall_cli
+        engine.finished = engine.started + 7
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            upall_cli.summary(engine, Path(tmp))
+        text = output.getvalue()
+        assert "结果摘要" in text and "总耗时 7s" in text
+        assert "× Codex" in text and "✓ Claude Code" in text
+        assert text.index("Codex") < text.index("Claude Code")
+    finally:
+        engine.pool.shutdown()
+print("PASS: bar state colors, inline log tail, follow hint, failure focus, ASCII fallback, static summary")
+
 with tempfile.TemporaryDirectory(prefix="upall-pty-retry-") as tmp:
     session = Session(tmp, UPALL_TEST_FAILURE="codex")
     session.until(lambda: sum(j["status"] == "AVAILABLE" for j in session.report().get("jobs", [])) == 3)
@@ -149,7 +192,8 @@ with tempfile.TemporaryDirectory(prefix="upall-pty-retry-") as tmp:
     assert {j["role"]: j["attempt"] for j in report["jobs"]} == {"claude": 2, "codex": 3, "kimi": 1, "hermes": 2}
     session.send("0")
     session.close()
-print("PASS: default check, Space update, 2/２ failed-only retry, 3/３ logs, resize, lock, 0 exit")
+    assert "结果摘要".encode() in session.output
+print("PASS: default check, Space update, 2/２ failed-only retry, 3/３ logs, resize, lock, 0 exit, static summary on exit")
 
 for update_key in ("1", "１", "　"):
     with tempfile.TemporaryDirectory(prefix="upall-pty-check-") as tmp:
