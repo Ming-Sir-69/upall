@@ -179,8 +179,9 @@ class Engine:
             url = ("https://releases.claude.com/api/desktop/darwin/universal/squirrel/update"
                    f"?device_id={uuid.uuid4()}&version={urllib.parse.quote(found.version)}"
                    f"&os_version={platform.mac_ver()[0]}")
-            data = json.loads(self.command(role, ["curl", "-fsSL", "--connect-timeout", "6",
-                                                  "--max-time", "20", url], capture=True))
+            data = json.loads(self.command(role, ["curl", "-fsSL", "--retry", "2", "--retry-delay", "1",
+                                                  "--retry-all-errors", "--connect-timeout", "10",
+                                                  "--max-time", "20", url], capture=True, timeout=75))
             feed["version"] = data.get("currentRelease", "")
             package = (data.get("releases") or [{}])[0].get("updateTo", {})
             feed.update(url=package.get("url", ""), sha256=package.get("sha256", ""),
@@ -190,8 +191,9 @@ class Engine:
             url = ("https://updates.oaistatic.com/codex/app/appcast"
                    f"?installation_id={uuid.uuid4()}&arch={platform.machine()}"
                    f"&app_version={urllib.parse.quote(found.version)}")
-            output = self.command(role, ["curl", "-fsSL", "--connect-timeout", "6",
-                                         "--max-time", "20", url], capture=True)
+            output = self.command(role, ["curl", "-fsSL", "--retry", "2", "--retry-delay", "1",
+                                         "--retry-all-errors", "--connect-timeout", "10",
+                                         "--max-time", "20", url], capture=True, timeout=75)
             match = re.search(r"<sparkle:shortVersionString>([^<]+)</sparkle:shortVersionString>", output)
             feed["version"] = match.group(1) if match else ""
             enclosure = re.search(r'<enclosure url="([^"]+)" length="(\d+)"', output)
@@ -225,8 +227,9 @@ class Engine:
         app_path = Path(found.path)
         archive = self.log_dir / f"{role}.zip"
         extract = self.log_dir / f"{role}-extract"
-        self.command(role, ["curl", "-fsSL", "--connect-timeout", "6", "--max-time", "900",
-                            feed["url"], "-o", str(archive)], timeout=960)
+        self.command(role, ["curl", "-fsSL", "--retry", "3", "--retry-delay", "2", "--retry-all-errors",
+                            "-C", "-", "--connect-timeout", "20", "--max-time", "900",
+                            feed["url"], "-o", str(archive)], timeout=4000)
         size = archive.stat().st_size
         if feed.get("size") and size != feed["size"]:
             raise CommandError(f"更新包大小不符：{size} != {feed['size']}")

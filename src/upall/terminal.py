@@ -134,7 +134,14 @@ class Terminal:
                    (f"{fill * filled}{empty * (bar_size - filled)}  {done}/{len(jobs)} 完成 · {elapsed}s", bar_color), ("", "0")]
         wide = inner >= 68
         if wide:
-            content.append((f"  {fit('工具', 11)} {fit('当前版本', 15)} {fit('目标版本', 15)} 状态", "90"))
+            # Give names and versions their natural width when the frame allows
+            # it; shrink the label column first when space gets tight.
+            label_w = min(max(width(job.label) for job in jobs), 20)
+            ver_w = max(7, min(max(max(width(job.current), width(job.latest)) for job in jobs), 15))
+            status_w = max(width(f"{self.icons['done']} {LABELS[job.status]}") for job in jobs)
+            fixed = 2 + 3 + 2 * ver_w + status_w + 4
+            label_w = max(6, min(label_w, inner - fixed - 8))
+            content.append((f"  {fit('工具', label_w)} {fit('当前版本', ver_w)} {fit('目标版本', ver_w)} 状态", "90"))
         spinner = self.spinners[self.tick % len(self.spinners)]
         row_height = 2 if not wide and rows >= 18 else 1
         capacity = max(1, (rows - (16 if self.show_logs and rows >= 18 else 12)) // row_height)
@@ -151,7 +158,7 @@ class Terminal:
             color = "91" if job.status in FAILED else "93" if job.status in {"AVAILABLE", "UPDATING", "VERIFYING", "MANUAL"} else "92" if job.status in {"CURRENT", "UPDATED", "INSTALLED"} else "90" if job.status == "SKIPPED" else "96"
             prefix = self.pointer if index == self.selected else " "
             if wide:
-                main = f"{prefix} {fit(job.label, 11)} {fit(job.current, 15)} {fit(job.latest, 15)} {status} · {int(job.elapsed())}s"
+                main = f"{prefix} {fit(job.label, label_w)} {fit(job.current, ver_w)} {fit(job.latest, ver_w)} {status} · {int(job.elapsed())}s"
                 room = inner - width(main) - 3
                 if job.status in ACTIVE | FAILED and room >= 8:
                     last = self.last_line(job.role)
