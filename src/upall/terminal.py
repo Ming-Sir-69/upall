@@ -9,6 +9,7 @@ import termios
 import time
 import tty
 from .status import ACTIVE, FAILED, LABELS
+from .icons import BRAND, PIXELART
 from .util import fit, tail, width
 
 
@@ -18,6 +19,31 @@ def supports_unicode():
         return False
     locale = " ".join(os.environ.get(name, "") for name in ("LC_ALL", "LC_CTYPE", "LANG")).lower()
     return "utf" in locale or not locale.strip()
+
+
+def truecolor():
+    return os.environ.get("COLORTERM", "").lower() in ("truecolor", "24bit")
+
+
+def rgb_256(r, g, b):
+    """Nearest xterm-256 palette entry for non-truecolor terminals."""
+    if abs(r - g) < 8 and abs(g - b) < 8:
+        if r < 8:
+            return 16
+        if r > 248:
+            return 231
+        return 232 + round((r - 8) / 247 * 24)
+    return 16 + 36 * round(r / 255 * 5) + 6 * round(g / 255 * 5) + round(b / 255 * 5)
+
+
+def brand_chip(role, *, color, unicode, truecolor_on):
+    """The tool's distinctive mark in its brand color (or plain when color is off)."""
+    unicode_mark, ascii_mark, rgb = BRAND.get(role, ("•", "?", (160, 160, 160)))
+    mark = unicode_mark if unicode else ascii_mark
+    if not color:
+        return mark
+    code = f"38;2;{rgb[0]};{rgb[1]};{rgb[2]}" if truecolor_on else f"38;5;{rgb_256(*rgb)}"
+    return f"\033[{code}m{mark}\033[0m"
 
 
 class KeyDecoder:
@@ -84,7 +110,39 @@ class Terminal:
                       {"failed": "x", "manual": "!", "available": "^", "done": "+", "skipped": "-"})
         self.pointer = "›" if self.unicode else ">"
         self.box = ("╭", "╮", "╰", "╯", "─", "│") if self.unicode else ("+", "+", "+", "+", "-", "|")
+        self.truecolor = truecolor()
         self.last_lines = {}
+
+    def chip_cell(self, role):
+        """Brand mark padded to a fixed two-cell column."""
+        unicode_mark, ascii_mark, _ = BRAND.get(role, ("•", "?", (160, 160, 160)))
+        mark = unicode_mark if self.unicode else ascii_mark
+        return brand_chip(role, color=self.color, unicode=self.unicode,
+                          truecolor_on=self.truecolor) + " " * max(0, 2 - width(mark))
+
+    def tone(self, fg, bg=None):
+        if self.truecolor:
+            code = f"38;2;{fg[0]};{fg[1]};{fg[2]}" + (f";48;2;{bg[0]};{bg[1]};{bg[2]}" if bg else "")
+        else:
+            code = f"38;5;{rgb_256(*fg)}" + (f";48;5;{rgb_256(*bg)}" if bg else "")
+        return f"\033[{code}m"
+
+    def portrait(self, role, inner):
+        """Pixelated app icon: each cell packs two vertical pixels into one ▀/▄."""
+        lines = []
+        for row in PIXELART[role]:
+            line = "  "
+            for top, bottom in row:
+                if top and bottom:
+                    line += self.tone(top, bottom) + "▀"
+                elif top:
+                    line += self.tone(top) + "▀"
+                elif bottom:
+                    line += self.tone(bottom) + "▄"
+                else:
+                    line += " "
+            lines.append(line + "\033[0m" + " " * max(0, inner - 14))
+        return lines
 
     def last_line(self, role):
         """Most recent non-command log line, cached by mtime to keep frames cheap."""
@@ -134,7 +192,7 @@ class Terminal:
                    (f"{fill * filled}{empty * (bar_size - filled)}  {done}/{len(jobs)} 完成 · {elapsed}s", bar_color), ("", "0")]
         wide = inner >= 68
         if wide:
-            content.append((f"  {fit('工具', 11)} {fit('当前版本', 15)} {fit('目标版本', 15)} 状态", "90"))
+            content.append((f"     {fit('工具', 14)} {fit('当前版本', 14)} {fit('目标版本', 14)} 状态", "90"))
         spinner = self.spinners[self.tick % len(self.spinners)]
         row_height = 2 if not wide and rows >= 18 else 1
         capacity = max(1, (rows - (16 if self.show_logs and rows >= 18 else 12)) // row_height)
@@ -150,19 +208,21 @@ class Terminal:
             status = f"{icon} {LABELS[job.status]}"
             color = "91" if job.status in FAILED else "93" if job.status in {"AVAILABLE", "UPDATING", "VERIFYING", "MANUAL"} else "92" if job.status in {"CURRENT", "UPDATED", "INSTALLED"} else "90" if job.status == "SKIPPED" else "96"
             prefix = self.pointer if index == self.selected else " "
+            chip = self.chip_cell(job.role)
             if wide:
-                main = f"{prefix} {fit(job.label, 11)} {fit(job.current, 15)} {fit(job.latest, 15)} {status} · {int(job.elapsed())}s"
-                room = inner - width(main) - 3
+                rest = f"{fit(job.label, 14)} {fit(job.current, 14)} {fit(job.latest, 14)} {status} · {int(job.elapsed())}s"
+                segments = [(f"{prefix} ", color), (chip, None), (" " + rest, color)]
+                room = inner - (5 + width(rest)) - 3
                 if job.status in ACTIVE | FAILED and room >= 8:
                     last = self.last_line(job.role)
                     if last:
-                        content.append(([(main, color), (" · " + fit(last, room), "90")], ""))
-                        continue
-                content.append((main, color))
+                        segments.append((" · " + fit(last, room), "90"))
+                content.append((segments, ""))
             else:
-                content.append((f"{prefix} {job.label}  {status} · {int(job.elapsed())}s", color))
+                rest = fit(f"{job.label}  {status} · {int(job.elapsed())}s", inner - 5)
+                content.append(([(f"{prefix} ", color), (chip, None), (" " + rest, color)], ""))
                 if rows >= 18:
-                    content.append((f"  {job.current} → {job.latest}", "90"))
+                    content.append((f"    {job.current} → {job.latest}", "90"))
         if len(jobs) > capacity and rows >= 12:
             content.append((f"显示 {first + 1}–{min(first + capacity, len(jobs))}/{len(jobs)} · ↑↓ 浏览", "90"))
         content.append(("", "0"))
@@ -172,6 +232,8 @@ class Terminal:
             if self.offset:
                 header += " · 已暂停跟随，] 回到底部"
             content.append((header, "96"))
+            if self.color and chosen.role in PIXELART and inner >= 20:
+                content.extend((line, "raw") for line in self.portrait(chosen.role, inner))
             count = max(1, min(5, rows - len(content) - 7))
             lines = tail(self.engine.log_dir / f"{chosen.role}.log", count, self.offset)
             content.extend((line, "90") for line in (lines or ["等待输出…"]))
@@ -203,9 +265,12 @@ class Terminal:
         border = horizontal * (inner + 2)
         lines = [self.paint(top_left + border + top_right, "90")]
         for text, color in content:
-            if isinstance(text, list):
+            if color == "raw":
+                body = text
+            elif isinstance(text, list):
                 used = sum(width(segment) for segment, _ in text)
-                body = "".join(self.paint(segment, segment_color) for segment, segment_color in text)
+                body = "".join(self.paint(segment, segment_color) if segment_color else segment
+                               for segment, segment_color in text)
                 body += " " * max(0, inner - used)
             else:
                 body = self.paint(fit(text, inner), color)
