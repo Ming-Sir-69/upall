@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0 — 2026-10-30
+
+- Give every tool a distinctive brand mark in its brand color (Claude Code's coral ✳, OpenAI green ❯, xAI 𝕏, π for Pi, and so on) across the TUI, the exit summary and plain output; truecolor terminals get exact colors, others get the nearest xterm-256 entry.
+- Show a pixelated portrait rendered from the real macOS app icon in the log pane for Claude Desktop and ChatGPT (regenerate with tools/make_icons.py).
+
 ## 0.3.1 — 2026-10-30
 
 - Show installed desktop applications (Claude Desktop, ChatGPT) in the default run as read-only "installed" entries instead of hiding them behind --list/--all; they no longer count as needing manual action.
