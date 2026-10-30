@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "upall-cli"
-version = "0.6.0"
+version = "0.7.0"
 description = "Discover AI CLIs, check versions, and update explicitly from a Chinese-first terminal UI."
 readme = "README.md"
 requires-python = ">=3.11"

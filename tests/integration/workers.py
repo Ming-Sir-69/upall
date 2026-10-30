@@ -201,21 +201,76 @@ run_case("update", {"claude":"UPDATED", **dict.fromkeys(current,"UPDATED"),
          **dict.fromkeys(("gemini","grok","opencode","openclaw","pi","mcode"),"UPDATED")}, 0, ("--update",),
          include_claude=True, include_npm_tools=True)
 
-# Desktop applications join the default run as read-only INSTALLED entries.
+# Desktop applications check their own update feeds but are never auto-installed.
 from types import SimpleNamespace
 from upall.discovery import Installation
 from upall.engine import Engine
 
-with tempfile.TemporaryDirectory(prefix="upall-desktop-") as tmp:
+
+def desktop_engine(tmp, version="26.1", inventory=False):
     installations = {"chatgpt": Installation("chatgpt", "/Applications/ChatGPT.app", "desktop",
-                                             version="26.1", reason="由桌面应用自身更新")}
-    engine = Engine(SimpleNamespace(check=True, demo=False, inventory=False), ["chatgpt"], Path(tmp), installations)
+                                             version=version, reason="由桌面应用自身更新")}
+    args = SimpleNamespace(check=True, demo=False, inventory=inventory)
+    return Engine(args, ["chatgpt"], Path(tmp), installations)
+
+
+with tempfile.TemporaryDirectory(prefix="upall-desktop-") as tmp:
+    engine = desktop_engine(tmp)
     try:
+        engine.desktop_latest = lambda role, found: found.version
         engine.start()
         while not engine.done():
             time.sleep(0.02)
         job = engine.snapshot()[0]
-        assert job.status == "INSTALLED" and job.current == "26.1" and job.detail == "由桌面应用自身更新"
+        assert job.status == "CURRENT" and job.current == "26.1" and job.latest == "26.1"
+        assert job.detail == "由桌面应用自身更新"
     finally:
         engine.pool.shutdown()
-print("PASS: desktop applications join the default run as read-only INSTALLED entries")
+print("PASS: desktop application up to date shows CURRENT with the feed version")
+
+with tempfile.TemporaryDirectory(prefix="upall-desktop-newer-") as tmp:
+    engine = desktop_engine(tmp)
+    try:
+        engine.desktop_latest = lambda role, found: "26.2"
+        engine.start()
+        while not engine.done():
+            time.sleep(0.02)
+        job = engine.snapshot()[0]
+        assert job.status == "MANUAL" and job.latest == "26.2" and job.detail == "请在应用内更新"
+    finally:
+        engine.pool.shutdown()
+print("PASS: a newer desktop release needs manual in-app updating, never an upall install")
+
+with tempfile.TemporaryDirectory(prefix="upall-desktop-inventory-") as tmp:
+    engine = desktop_engine(tmp, inventory=True)
+    try:
+        def no_feed(role, found):
+            raise AssertionError("inventory must not contact update feeds")
+        engine.desktop_latest = no_feed
+        engine.start()
+        while not engine.done():
+            time.sleep(0.02)
+        job = engine.snapshot()[0]
+        assert job.status == "INSTALLED" and job.current == "26.1" and job.latest == "-"
+    finally:
+        engine.pool.shutdown()
+print("PASS: inventory mode lists desktop applications without update checks")
+
+with tempfile.TemporaryDirectory(prefix="upall-desktop-feed-") as tmp:
+    engine = desktop_engine(tmp)
+    try:
+        appcast = ('<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">'
+                   "<channel><item><sparkle:shortVersionString>26.1027.30824"
+                   "</sparkle:shortVersionString></item></channel></rss>")
+        engine.command = lambda role, command, **kwargs: appcast
+        assert engine.desktop_latest("chatgpt", engine.installations["chatgpt"]) == "26.1027.30824"
+        engine.command = lambda role, command, **kwargs: "<rss/>"
+        try:
+            engine.desktop_latest("chatgpt", engine.installations["chatgpt"])
+        except Exception as error:
+            assert "未读到有效的最新版本" in str(error)
+        else:
+            raise AssertionError("malformed appcast must fail the check")
+    finally:
+        engine.pool.shutdown()
+print("PASS: Sparkle appcast parsing and rejection of malformed feed metadata")
