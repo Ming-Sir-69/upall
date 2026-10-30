@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.0 — 2026-10-30
+
+- Desktop applications now check for updates: Claude Desktop via its releases.claude.com feed, ChatGPT via its Sparkle appcast. Up-to-date apps report CURRENT with the feed version; a newer release becomes a manual entry asking to update inside the app. upall still never installs desktop updates itself, and inventory mode stays offline.
+- Update-feed requests use a fresh anonymous id per call and remote version metadata is validated before use.
+
 ## 0.6.0 — 2026-10-30
 
 - Return to the plain 0.3.x presentation: no per-tool glyphs, pixel portraits or brand colors; the table, exit summary and plain output use status-colored text only, as before the brand-mark experiments.
