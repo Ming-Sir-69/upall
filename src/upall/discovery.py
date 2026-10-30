@@ -11,8 +11,9 @@ TOOLS = {
     "claude": "Claude Code", "codex": "Codex", "kimi": "Kimi Code", "hermes": "Hermes",
     "gemini": "Gemini CLI", "grok": "Grok Build", "opencode": "OpenCode",
     "openclaw": "OpenClaw", "pi": "Pi", "mcode": "MiniMax Code",
-    "claude-desktop": "Claude Desktop",
+    "claude-desktop": "Claude Desktop", "chatgpt": "ChatGPT",
 }
+DESKTOP_APPS = {"claude-desktop": ("Claude Desktop", "Claude"), "chatgpt": ("ChatGPT", "ChatGPT")}
 DEMO_ROLES = ("claude", "codex", "kimi", "hermes")
 PACKAGES = {
     "claude": ("@anthropic-ai/claude-code",), "codex": ("@openai/codex",),
@@ -153,6 +154,21 @@ def classify(role, executable, home=None):
     return result
 
 
+def desktop_app(role, home, system_dir=Path("/Applications")):
+    """Read a desktop bundle's version; the app updates itself, so detection is read-only."""
+    label, bundle = DESKTOP_APPS[role]
+    for candidate in (system_dir / f"{bundle}.app", home / f"Applications/{bundle}.app"):
+        try:
+            with (candidate / "Contents/Info.plist").open("rb") as file:
+                info = plistlib.load(file)
+            return Installation(role, str(candidate), "desktop",
+                                version=str(info.get("CFBundleShortVersionString", "")),
+                                reason="由桌面应用自身更新")
+        except (OSError, ValueError, plistlib.InvalidFileException):
+            continue
+    return Installation(role, reason=f"未找到 {label} 桌面应用")
+
+
 def discover(search_path=None, home=None):
     home = Path.home() if home is None else Path(home)
     explicit = search_path is not None
@@ -168,19 +184,9 @@ def discover(search_path=None, home=None):
                 search_path += os.pathsep + str(extra / "bin" if key == "MCODE_INSTALL_DIR" else extra)
     found = {}
     for role in TOOLS:
-        if role == "claude-desktop":
-            found[role] = Installation(role, reason="未找到 Claude 桌面应用")
-            if not explicit:
-                for bundle in (Path("/Applications/Claude.app"), home / "Applications/Claude.app"):
-                    try:
-                        with (bundle / "Contents/Info.plist").open("rb") as file:
-                            info = plistlib.load(file)
-                        found[role] = Installation(role, str(bundle), "desktop",
-                            version=str(info.get("CFBundleShortVersionString", "")),
-                            reason="由桌面应用自身更新")
-                        break
-                    except (OSError, ValueError, plistlib.InvalidFileException):
-                        continue
+        if role in DESKTOP_APPS:
+            found[role] = (Installation(role, reason=f"未找到 {DESKTOP_APPS[role][0]} 桌面应用")
+                           if explicit else desktop_app(role, home))
             continue
         path = shutil.which(role, path=search_path)
         found[role] = classify(role, path, home) if path else Installation(role)

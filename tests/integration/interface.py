@@ -114,10 +114,11 @@ with tempfile.TemporaryDirectory(prefix="upall-interface-") as tmp:
             assert "退出" in "\n".join(frame)
         frame = "\n".join(view.frame(120, 40))
         assert "空格/1 更新" in frame and "2 重试" in frame and "3 日志" in frame
+        view.key("3")
         view.selected = len(engine.jobs) - 1
         frame = view.frame(80, 24)
         assert "显示" in "\n".join(frame)
-        assert "› " + upall.fit("Claude Desktop", 11).strip() in "\n".join(frame)
+        assert "› " + upall.fit("ChatGPT", 11).strip() in "\n".join(frame)
         view.selected = 0
         assert upall.clean("\x1b[31merror\x1b[0m\x1b]52;c;payload\x07\r") == "error"
         for key in ("\r", "\n", "0", "０", "\x1b", "q", "Q", "x", "X"):
@@ -153,6 +154,13 @@ with tempfile.TemporaryDirectory(prefix="upall-interface-polish-") as tmp:
         view.selected = 0
         view.focus_failed()
         assert view.selected == list(upall.TOOLS).index("codex")
+        folded = upall.Terminal(engine)
+        assert not folded.show_logs
+        folded.frame(120, 40)
+        assert folded.show_logs
+        folded.key("3")
+        folded.frame(120, 40)
+        assert not folded.show_logs
         os.environ["UPALL_ASCII"] = "1"
         try:
             plain = "\n".join(upall.Terminal(engine).frame(80, 24))
@@ -170,6 +178,12 @@ with tempfile.TemporaryDirectory(prefix="upall-interface-polish-") as tmp:
         assert "结果摘要" in text and "总耗时 7s" in text
         assert "× Codex" in text and "✓ Claude Code" in text
         assert text.index("Codex") < text.index("Claude Code")
+        engine.update("codex", status="CURRENT", detail="")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            upall_cli.summary(engine, Path(tmp))
+        text = output.getvalue()
+        assert "结果摘要" not in text and "完成 12 项 · 失败 0 项" in text and "总耗时 7s" in text
     finally:
         engine.pool.shutdown()
 print("PASS: bar state colors, inline log tail, follow hint, failure focus, ASCII fallback, static summary")
@@ -192,8 +206,8 @@ with tempfile.TemporaryDirectory(prefix="upall-pty-retry-") as tmp:
     assert {j["role"]: j["attempt"] for j in report["jobs"]} == {"claude": 2, "codex": 3, "kimi": 1, "hermes": 2}
     session.send("0")
     session.close()
-    assert "结果摘要".encode() in session.output
-print("PASS: default check, Space update, 2/２ failed-only retry, 3/３ logs, resize, lock, 0 exit, static summary on exit")
+    assert "完成 4 项 · 失败 0 项".encode() in session.output
+print("PASS: default check, Space update, 2/２ failed-only retry, 3/３ logs, resize, lock, 0 exit, collapsed summary on success")
 
 for update_key in ("1", "１", "　"):
     with tempfile.TemporaryDirectory(prefix="upall-pty-check-") as tmp:
@@ -235,6 +249,7 @@ with tempfile.TemporaryDirectory(prefix="upall-pty-running-") as tmp:
     session.send("[")
     session.read()
     session.send("B")
+    session.send("3")
     session.until(lambda: "日志 · Codex".encode() in session.output)
     assert session.process.poll() is None
     session.send("0")
