@@ -11,18 +11,12 @@ from . import __version__
 from .discovery import TOOLS, DEMO_ROLES, SOURCE_LABELS, discover
 from .engine import Engine
 from .status import ACTIVE, FAILED, LABELS
-from .terminal import Terminal, supports_unicode, truecolor, brand_paint
+from .terminal import Terminal, supports_unicode
 from .util import fit, private_directory, state_root
 
 
 def plain(engine):
     seen = {}
-    color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
-    truecolor_on = truecolor()
-
-    def paint(role, text):
-        return brand_paint(role, text, color=color, truecolor_on=truecolor_on)
-
     if not engine.args.json:
         label = "安装检测" if engine.mode == "inventory" else "自动检查版本" if engine.mode == "check" else "检查并更新"
         print(f"UPALL · {label} · {len(engine.jobs)} 个工具 · 最多 {min(3, len(engine.jobs))} 项并行", flush=True)
@@ -31,7 +25,7 @@ def plain(engine):
         for job in engine.snapshot():
             if not engine.args.json and engine.mode != "inventory" and job.status != seen.get(job.role) and job.status not in ACTIVE:
                 versions = f"{job.current} → {job.latest}"
-                print(f"{paint(job.role, job.label)}: {LABELS[job.status]} · {versions}" + (f" · {job.detail}" if job.detail else ""), flush=True)
+                print(f"{job.label}: {LABELS[job.status]} · {versions}" + (f" · {job.detail}" if job.detail else ""), flush=True)
                 seen[job.role] = job.status
         if done:
             break
@@ -40,7 +34,7 @@ def plain(engine):
         print(f"{fit('工具 [命令]', 32)} {fit('状态', 12)} {fit('版本', 14)} 来源")
         for job in engine.snapshot():
             status = "未安装" if not job.installed else LABELS[job.status]
-            print(f"{paint(job.role, fit(job.label + ' [' + job.role + ']', 32))} {fit(status, 12)} {fit(job.current, 14)} {SOURCE_LABELS[job.source]}")
+            print(f"{fit(job.label + ' [' + job.role + ']', 32)} {fit(status, 12)} {fit(job.current, 14)} {SOURCE_LABELS[job.source]}")
             if job.installed:
                 print("  " + job.path + (" · " + job.detail if job.detail else ""))
 
@@ -56,7 +50,6 @@ def summary(engine, log_dir):
     marks = ({"bad": "×", "done": "✓", "wait": "!", "skip": "–"} if supports_unicode()
              else {"bad": "x", "done": "+", "wait": "!", "skip": "-"})
     color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
-    truecolor_on = truecolor()
 
     def paint(text, code):
         return f"\033[{code}m{text}\033[0m" if color else text
@@ -70,8 +63,7 @@ def summary(engine, log_dir):
     for job, mark, code in order:
         versions = job.current if job.current == job.latest else f"{job.current} → {job.latest}"
         seconds = f" · {int(job.elapsed())}s" if job.elapsed() else ""
-        label = brand_paint(job.role, job.label, color=color, truecolor_on=truecolor_on)
-        line = f"{mark} {label}  {LABELS[job.status]} · {versions}{seconds}"
+        line = f"{mark} {job.label}  {LABELS[job.status]} · {versions}{seconds}"
         if job.detail:
             line += f" · {job.detail}"
         print(paint(line, code))
