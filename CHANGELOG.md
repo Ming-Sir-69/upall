@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 — 2026-10-30
+
+- Show installed desktop applications (Claude Desktop, ChatGPT) in the default run as read-only "installed" entries instead of hiding them behind --list/--all; they no longer count as needing manual action.
+
 ## 0.3.0 — 2026-10-30
 
 - Add the ChatGPT desktop app to the inventory next to Claude Desktop; desktop applications stay read-only and update themselves.
