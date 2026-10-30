@@ -200,3 +200,22 @@ run_case("update", {"claude":"UPDATED", **dict.fromkeys(current,"UPDATED")}, 0, 
 run_case("update", {"claude":"UPDATED", **dict.fromkeys(current,"UPDATED"),
          **dict.fromkeys(("gemini","grok","opencode","openclaw","pi","mcode"),"UPDATED")}, 0, ("--update",),
          include_claude=True, include_npm_tools=True)
+
+# Desktop applications join the default run as read-only INSTALLED entries.
+from types import SimpleNamespace
+from upall.discovery import Installation
+from upall.engine import Engine
+
+with tempfile.TemporaryDirectory(prefix="upall-desktop-") as tmp:
+    installations = {"chatgpt": Installation("chatgpt", "/Applications/ChatGPT.app", "desktop",
+                                             version="26.1", reason="由桌面应用自身更新")}
+    engine = Engine(SimpleNamespace(check=True, demo=False, inventory=False), ["chatgpt"], Path(tmp), installations)
+    try:
+        engine.start()
+        while not engine.done():
+            time.sleep(0.02)
+        job = engine.snapshot()[0]
+        assert job.status == "INSTALLED" and job.current == "26.1" and job.detail == "由桌面应用自身更新"
+    finally:
+        engine.pool.shutdown()
+print("PASS: desktop applications join the default run as read-only INSTALLED entries")
