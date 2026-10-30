@@ -6,7 +6,7 @@ Discover installed AI CLIs, check their versions, and update only when you choos
 
 **Check automatically → Space to update → Enter to exit.**
 
-UPALL has a Chinese-first terminal UI, handles full-width number keys, shows per-tool logs, and adapts to narrow terminals. It uses Python's standard library at runtime.
+UPALL has a Chinese-first terminal UI with per-tool brand marks and pixelated desktop app icons, handles full-width number keys, shows per-tool logs, and adapts to narrow terminals. It uses Python's standard library at runtime.
 
 It is an extracted module from a larger private workspace. This repository owns reusable behavior; the host project owns its configuration, shortcuts, private records and pinned dependency version. See [module integration](docs/module-integration.md) before adopting it into a larger project.
 

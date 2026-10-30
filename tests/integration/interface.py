@@ -116,9 +116,9 @@ with tempfile.TemporaryDirectory(prefix="upall-interface-") as tmp:
         assert "空格/1 更新" in frame and "2 重试" in frame and "3 日志" in frame
         view.key("3")
         view.selected = len(engine.jobs) - 1
-        frame = view.frame(80, 24)
-        assert "显示" in "\n".join(frame)
-        assert "› " + upall.fit("ChatGPT", 11).strip() in "\n".join(frame)
+        frame = "\n".join(view.frame(80, 24))
+        assert "显示" in frame
+        assert upall.fit("ChatGPT", 11).strip() in frame and "›" in frame
         view.selected = 0
         assert upall.clean("\x1b[31merror\x1b[0m\x1b]52;c;payload\x07\r") == "error"
         for key in ("\r", "\n", "0", "０", "\x1b", "q", "Q", "x", "X"):
@@ -139,6 +139,11 @@ with tempfile.TemporaryDirectory(prefix="upall-interface-polish-") as tmp:
             engine.update(role, status="CURRENT", current="1.2.3", latest="1.2.3")
         view = upall.Terminal(engine)
         view.color = True
+        view.truecolor = True
+        from upall.icons import BRAND
+        assert set(BRAND) == set(upall.TOOLS)
+        frame = "\n".join(view.frame(120, 40))
+        assert "✳" in frame and "\033[38;2;217;119;87m" in frame
         assert "\033[92m━" in "\n".join(view.frame(120, 40))
         engine.update("claude", status="UPDATE-FAILED", detail="命令退出码 1")
         assert "\033[91m━" in "\n".join(view.frame(120, 40))
@@ -164,9 +169,14 @@ with tempfile.TemporaryDirectory(prefix="upall-interface-polish-") as tmp:
         os.environ["UPALL_ASCII"] = "1"
         try:
             plain = "\n".join(upall.Terminal(engine).frame(80, 24))
-            assert "╭" not in plain and "─" not in plain and "+" in plain
+            assert "╭" not in plain and "─" not in plain and "+" in plain and "✳" not in plain
         finally:
             del os.environ["UPALL_ASCII"]
+        view.selected = list(upall.TOOLS).index("claude-desktop")
+        view.show_logs, view.logs_touched = True, True
+        art = view.frame(140, 40)
+        assert any("▀" in line or "▄" in line for line in art)
+        assert max(map(upall.width, art)) <= 140
         import contextlib
         import io
         from upall import cli as upall_cli
@@ -176,7 +186,7 @@ with tempfile.TemporaryDirectory(prefix="upall-interface-polish-") as tmp:
             upall_cli.summary(engine, Path(tmp))
         text = output.getvalue()
         assert "结果摘要" in text and "总耗时 7s" in text
-        assert "× Codex" in text and "✓ Claude Code" in text
+        assert "× ❯ Codex" in text and "✓ ✳ Claude Code" in text
         assert text.index("Codex") < text.index("Claude Code")
         engine.update("codex", status="CURRENT", detail="")
         output = io.StringIO()
