@@ -15,6 +15,7 @@ Discovery checks PATH and bounded common installation directories, plus explicit
 | Pi | Known npm package namespace or known Homebrew formula |
 | MiniMax Code | Matching npm package or known official installer root |
 | Claude Desktop | Inventory only; updates belong to the desktop application |
+| ChatGPT | Inventory only; updates belong to the desktop application |
 
 Unknown provenance and project-local dependencies are manual. A discovered executable that cannot run is a query failure rather than an instruction to reinstall. Source package aliases do not automatically migrate between namespaces.
 
