@@ -114,6 +114,8 @@ with tempfile.TemporaryDirectory(prefix="upall-interface-") as tmp:
             assert "退出" in "\n".join(frame)
         frame = "\n".join(view.frame(120, 40))
         assert "空格/1 更新" in frame and "2 重试" in frame and "3 日志" in frame
+        frame80 = "\n".join(view.frame(80, 24))
+        assert "Claude Desktop" in frame80, "labels must not be truncated at 80 columns"
         view.key("3")
         view.selected = len(engine.jobs) - 1
         frame = view.frame(80, 24)
