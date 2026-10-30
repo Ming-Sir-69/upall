@@ -9,7 +9,6 @@ import termios
 import time
 import tty
 from .status import ACTIVE, FAILED, LABELS
-from .colors import BRAND_COLORS
 from .util import fit, tail, width
 
 
@@ -19,30 +18,6 @@ def supports_unicode():
         return False
     locale = " ".join(os.environ.get(name, "") for name in ("LC_ALL", "LC_CTYPE", "LANG")).lower()
     return "utf" in locale or not locale.strip()
-
-
-def truecolor():
-    return os.environ.get("COLORTERM", "").lower() in ("truecolor", "24bit")
-
-
-def rgb_256(r, g, b):
-    """Nearest xterm-256 palette entry for non-truecolor terminals."""
-    if abs(r - g) < 8 and abs(g - b) < 8:
-        if r < 8:
-            return 16
-        if r > 248:
-            return 231
-        return 232 + round((r - 8) / 247 * 24)
-    return 16 + 36 * round(r / 255 * 5) + 6 * round(g / 255 * 5) + round(b / 255 * 5)
-
-
-def brand_paint(role, text, *, color, truecolor_on):
-    """The tool's label in its brand color (or plain when color is off)."""
-    if not color:
-        return text
-    r, g, b = BRAND_COLORS.get(role, (160, 160, 160))
-    code = f"38;2;{r};{g};{b}" if truecolor_on else f"38;5;{rgb_256(r, g, b)}"
-    return f"\033[{code}m{text}\033[0m"
 
 
 class KeyDecoder:
@@ -109,11 +84,7 @@ class Terminal:
                       {"failed": "x", "manual": "!", "available": "^", "done": "+", "skipped": "-"})
         self.pointer = "›" if self.unicode else ">"
         self.box = ("╭", "╮", "╰", "╯", "─", "│") if self.unicode else ("+", "+", "+", "+", "-", "|")
-        self.truecolor = truecolor()
         self.last_lines = {}
-
-    def brand(self, role, text):
-        return brand_paint(role, text, color=self.color, truecolor_on=self.truecolor)
 
     def last_line(self, role):
         """Most recent non-command log line, cached by mtime to keep frames cheap."""
@@ -163,7 +134,7 @@ class Terminal:
                    (f"{fill * filled}{empty * (bar_size - filled)}  {done}/{len(jobs)} 完成 · {elapsed}s", bar_color), ("", "0")]
         wide = inner >= 68
         if wide:
-            content.append((f"   {fit('工具', 14)} {fit('当前版本', 14)} {fit('目标版本', 14)} 状态", "90"))
+            content.append((f"  {fit('工具', 11)} {fit('当前版本', 15)} {fit('目标版本', 15)} 状态", "90"))
         spinner = self.spinners[self.tick % len(self.spinners)]
         row_height = 2 if not wide and rows >= 18 else 1
         capacity = max(1, (rows - (16 if self.show_logs and rows >= 18 else 12)) // row_height)
@@ -180,20 +151,18 @@ class Terminal:
             color = "91" if job.status in FAILED else "93" if job.status in {"AVAILABLE", "UPDATING", "VERIFYING", "MANUAL"} else "92" if job.status in {"CURRENT", "UPDATED", "INSTALLED"} else "90" if job.status == "SKIPPED" else "96"
             prefix = self.pointer if index == self.selected else " "
             if wide:
-                rest = f"{fit(job.current, 14)} {fit(job.latest, 14)} {status} · {int(job.elapsed())}s"
-                segments = [(f"{prefix} ", color), (self.brand(job.role, fit(job.label, 14)), None), (" " + rest, color)]
-                room = inner - (17 + width(rest)) - 3
+                main = f"{prefix} {fit(job.label, 11)} {fit(job.current, 15)} {fit(job.latest, 15)} {status} · {int(job.elapsed())}s"
+                room = inner - width(main) - 3
                 if job.status in ACTIVE | FAILED and room >= 8:
                     last = self.last_line(job.role)
                     if last:
-                        segments.append((" · " + fit(last, room), "90"))
-                content.append((segments, ""))
+                        content.append(([(main, color), (" · " + fit(last, room), "90")], ""))
+                        continue
+                content.append((main, color))
             else:
-                label = fit(job.label, 14)
-                rest = fit(f"  {status} · {int(job.elapsed())}s", max(4, inner - 3 - width(label)))
-                content.append(([(f"{prefix} ", color), (self.brand(job.role, label), None), (rest, color)], ""))
+                content.append((f"{prefix} {job.label}  {status} · {int(job.elapsed())}s", color))
                 if rows >= 18:
-                    content.append((f"    {job.current} → {job.latest}", "90"))
+                    content.append((f"  {job.current} → {job.latest}", "90"))
         if len(jobs) > capacity and rows >= 12:
             content.append((f"显示 {first + 1}–{min(first + capacity, len(jobs))}/{len(jobs)} · ↑↓ 浏览", "90"))
         content.append(("", "0"))
@@ -236,8 +205,7 @@ class Terminal:
         for text, color in content:
             if isinstance(text, list):
                 used = sum(width(segment) for segment, _ in text)
-                body = "".join(self.paint(segment, segment_color) if segment_color else segment
-                               for segment, segment_color in text)
+                body = "".join(self.paint(segment, segment_color) for segment, segment_color in text)
                 body += " " * max(0, inner - used)
             else:
                 body = self.paint(fit(text, inner), color)
