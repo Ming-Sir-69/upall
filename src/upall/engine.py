@@ -4,6 +4,7 @@ from dataclasses import asdict
 import json
 import os
 from pathlib import Path
+import platform
 import re
 import shlex
 import signal
@@ -11,6 +12,8 @@ import subprocess
 import tempfile
 import threading
 import time
+import urllib.parse
+import uuid
 from .discovery import TOOLS, PACKAGES, Installation, discover
 from .models import Job
 from .status import LABELS
@@ -121,6 +124,8 @@ class Engine:
 
     def latest_version(self, role):
         found = self.installations[role]
+        if found.source == "desktop":
+            return self.desktop_latest(role, found)
         if found.source == "brew":
             data = json.loads(self.command(role, [found.manager, "info", "--json=v2",
                 "--cask" if found.cask else "--formula", found.package], capture=True, timeout=60))
@@ -154,6 +159,28 @@ class Engine:
         if not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][\w.-]+)?", output):
             raise CommandError("未读到有效的最新版本")
         return output
+
+    def desktop_latest(self, role, found):
+        """Read-only check of a desktop app's own update feed. Each request uses
+        a fresh anonymous id; nothing identifying is persisted."""
+        if role == "claude-desktop":
+            url = ("https://releases.claude.com/api/desktop/darwin/universal/squirrel/update"
+                   f"?device_id={uuid.uuid4()}&version={urllib.parse.quote(found.version)}"
+                   f"&os_version={platform.mac_ver()[0]}")
+            data = json.loads(self.command(role, ["curl", "-fsSL", "--connect-timeout", "6",
+                                                  "--max-time", "20", url], capture=True))
+            value = data.get("currentRelease", "")
+        else:  # ChatGPT's Sparkle appcast
+            url = ("https://updates.oaistatic.com/codex/app/appcast"
+                   f"?installation_id={uuid.uuid4()}&arch={platform.machine()}"
+                   f"&app_version={urllib.parse.quote(found.version)}")
+            output = self.command(role, ["curl", "-fsSL", "--connect-timeout", "6",
+                                         "--max-time", "20", url], capture=True)
+            match = re.search(r"<sparkle:shortVersionString>([^<]+)</sparkle:shortVersionString>", output)
+            value = match.group(1) if match else ""
+        if not re.fullmatch(r"\d+(\.\d+){1,3}", value or ""):
+            raise CommandError("未读到有效的最新版本")
+        return value
 
     def install(self, role):
         found = self.installations[role]
@@ -232,12 +259,15 @@ class Engine:
                 self.update(role, status="SKIPPED", detail="未找到可执行命令")
                 return
             if found.source == "desktop":
-                self.update(role, current=found.version or "-", status="INSTALLED", detail=found.reason)
-                return
-            if not found.update_supported:
-                self.update(role, status="MANUAL", detail=found.reason)
-                return
-            current = self.current_version(role)
+                if not found.version:
+                    self.update(role, current="-", status="INSTALLED", detail=found.reason)
+                    return
+                current = found.version
+            else:
+                if not found.update_supported:
+                    self.update(role, status="MANUAL", detail=found.reason)
+                    return
+                current = self.current_version(role)
             self.update(role, current=current)
             if self.mode == "inventory":
                 self.update(role, status="INSTALLED")
@@ -252,7 +282,11 @@ class Engine:
                     latest = current
             self.update(role, latest=latest)
             if current == latest:
-                self.update(role, status="CURRENT")
+                self.update(role, status="CURRENT", detail=found.reason if found.source == "desktop" else "")
+                return
+            if found.source == "desktop":
+                # Desktop apps update themselves; upall only points out the new release.
+                self.update(role, status="MANUAL", detail="请在应用内更新")
                 return
             if not install:
                 self.update(role, status="AVAILABLE")
