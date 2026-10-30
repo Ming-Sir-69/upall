@@ -227,9 +227,20 @@ class Engine:
         app_path = Path(found.path)
         archive = self.log_dir / f"{role}.zip"
         extract = self.log_dir / f"{role}-extract"
-        self.command(role, ["curl", "-fsSL", "--retry", "3", "--retry-delay", "2", "--retry-all-errors",
-                            "-C", "-", "--connect-timeout", "20", "--max-time", "900",
-                            feed["url"], "-o", str(archive)], timeout=4000)
+        aria2 = shutil.which("aria2c")
+        if aria2:
+            # Segmented multi-connection download (the aria2/IDM approach):
+            # single connections to the vendor CDN are throttled, segments
+            # are not; the .aria2 control file makes retries resumable.
+            command = [aria2, "-x8", "-s8", "-k1M", "--file-allocation=none",
+                       "--max-tries=3", "--retry-wait=2", "--connect-timeout=20",
+                       "--show-console-readout=false", "--summary-interval=5",
+                       "--dir", str(self.log_dir), "--out", archive.name, feed["url"]]
+            self.command(role, command, timeout=1800)
+        else:
+            self.command(role, ["curl", "-fsSL", "--retry", "3", "--retry-delay", "2", "--retry-all-errors",
+                                "-C", "-", "--connect-timeout", "20", "--max-time", "900",
+                                feed["url"], "-o", str(archive)], timeout=4000)
         size = archive.stat().st_size
         if feed.get("size") and size != feed["size"]:
             raise CommandError(f"更新包大小不符：{size} != {feed['size']}")
