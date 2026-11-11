@@ -118,6 +118,9 @@ def git_converge(git, remote, branch, state, log):
             else:
                 git("checkout", "--quiet", "-b", branch, upstream)
             log(f"本地分支 {current} 的修改已全部被上游收录，切回 {branch}")
+            if current != "HEAD":
+                # The branch we left is fully upstream now; archive it like any other.
+                overlay.branches[current] = {"pending": 0, "absorbed": overlay.absorbed, "worktree": False}
         if git("merge-base", "--is-ancestor", "HEAD", upstream, code=True) == 0:
             git("merge", "--quiet", "--ff-only", upstream)
         else:
