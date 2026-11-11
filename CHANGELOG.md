@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.2 — 2026-11-11
+
+- The 本地修改 column shows 无 when nothing local remains instead of repeating the detail note.
+
 ## 0.11.1 — 2026-11-11
 
 - Git convergence also archives the feature branch it leaves when upstream has absorbed all of its commits, instead of leaving a redundant branch behind.
