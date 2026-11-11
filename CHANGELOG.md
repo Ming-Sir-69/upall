@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.1 — 2026-11-11
+
+- Git convergence also archives the feature branch it leaves when upstream has absorbed all of its commits, instead of leaving a redundant branch behind.
+
 ## 0.11.0 — 2026-11-11
 
 - Agent plugins and maintenance tools join the catalog: KimiCU, Kimi WebBridge, iPhone Use, Agent Desktop, Mole and CC Switch, each through its vendor's own update channel. App bundles (KimiCU, CC Switch) are swapped only after sha256 (when published), strict code-signature and same-team checks, with the previous bundle kept as a rollback copy.

@@ -120,6 +120,8 @@ with tempfile.TemporaryDirectory(prefix="upall-git-") as tmp:
     assert (state["overlay"].local, state["overlay"].absorbed) == (0, 1)
     overlay.git_converge(git, "origin", "main", state, logs.append)
     assert git("rev-parse", "--abbrev-ref", "HEAD") == "main"
+    assert git("show-ref", "--verify", "--quiet", "refs/heads/feat/x", code=True) != 0
+    assert git("show-ref", "--verify", "--quiet", "refs/upall/archive/feat/x", code=True) == 0
     assert git("rev-parse", "HEAD") == git("rev-parse", "origin/main")
 print("PASS: git overlay finds verbatim/squashed absorption, keeps pending work, archives absorbed branches, refuses conflicts")
 
