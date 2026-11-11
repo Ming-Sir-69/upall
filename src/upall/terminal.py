@@ -8,6 +8,7 @@ import sys
 import termios
 import time
 import tty
+from .discovery import GROUPS
 from .status import ACTIVE, FAILED, LABELS
 from .util import fit, tail, width
 
@@ -83,6 +84,7 @@ class Terminal:
                       if self.unicode else
                       {"failed": "x", "manual": "!", "available": "^", "done": "+", "skipped": "-"})
         self.pointer = "›" if self.unicode else ">"
+        self.rule = "──" if self.unicode else "--"
         self.box = ("╭", "╮", "╰", "╯", "─", "│") if self.unicode else ("+", "+", "+", "+", "-", "|")
         self.last_lines = {}
 
@@ -130,26 +132,57 @@ class Terminal:
         elapsed = int((self.engine.finished or time.monotonic()) - self.engine.started)
         fill, empty = self.bars
         bar_color = "91" if failed else "92" if done == len(jobs) else "96"
-        content = [("UPALL · 工具更新", "1;96"), (f"{mode} · {len(jobs)} 个工具 · 最多 {min(3, len(jobs))} 项并行", "90"),
-                   (f"{fill * filled}{empty * (bar_size - filled)}  {done}/{len(jobs)} 完成 · {elapsed}s", bar_color), ("", "0")]
+        groups = list(dict.fromkeys(job.group for job in jobs))
+        content = [("UPALL · 工具更新", "1;96"),
+                   (f"{mode} · {len(jobs)} 项 · 最多 {min(4, len(jobs))} 项并行", "90"),
+                   (f"{fill * filled}{empty * (bar_size - filled)}  {done}/{len(jobs)} 完成 · {elapsed}s", bar_color)]
+        content.append(("", "0"))
         wide = inner >= 68
+        overlay_w = 0
         if wide:
             # Give names and versions their natural width when the frame allows
             # it; shrink the label column first when space gets tight.
             label_w = min(max(width(job.label) for job in jobs), 20)
             ver_w = max(7, min(max(max(width(job.current), width(job.latest)) for job in jobs), 15))
             status_w = max(width(f"{self.icons['done']} {LABELS[job.status]}") for job in jobs)
-            fixed = 2 + 3 + 2 * ver_w + status_w + 4
+            if any(job.overlay for job in jobs):
+                overlay_w = max(8, min(max(width(job.overlay) for job in jobs), 16))
+            fixed = 2 + 3 + 2 * ver_w + status_w + 4 + (overlay_w + 1 if overlay_w else 0)
             label_w = max(6, min(label_w, inner - fixed - 8))
-            content.append((f"  {fit('工具', label_w)} {fit('当前版本', ver_w)} {fit('目标版本', ver_w)} 状态", "90"))
+            header = f"  {fit('工具', label_w)} {fit('当前版本', ver_w)} {fit('目标版本', ver_w)} "
+            if overlay_w:
+                header += f"{fit('本地修改', overlay_w)} "
+            content.append((header + "状态", "90"))
         spinner = self.spinners[self.tick % len(self.spinners)]
         row_height = 2 if not wide and rows >= 18 else 1
         capacity = max(1, (rows - (16 if self.show_logs and rows >= 18 else 12)) // row_height)
         if rows < 12:
             capacity = max(1, rows - 6)
-        first = max(0, min(self.selected - capacity // 2, len(jobs) - capacity))
-        visible = list(enumerate(jobs))[first:first + capacity]
-        for index, job in visible:
+        # Group headers sit between rows; the selection only ever lands on tools.
+        entries, position = [], 0
+        for index, job in enumerate(jobs):
+            if len(groups) > 1 and (index == 0 or jobs[index - 1].group != job.group):
+                entries.append(("group", job.group))
+            if index == self.selected:
+                position = len(entries)
+            entries.append(("job", index))
+        first = max(0, min(position - capacity // 2, len(entries) - capacity))
+        visible = entries[first:first + capacity]
+        if visible and visible[0][0] == "job" and len(groups) > 1:
+            visible = [("group", jobs[visible[0][1]].group), *visible[:-1]] if len(visible) > 1 else visible
+        while len(visible) > 1 and visible[-1][0] == "group":
+            visible.pop()
+        shown = [jobs[i] for kind, i in visible if kind == "job"]
+        for kind, value in visible:
+            if kind == "group":
+                members = [job for job in jobs if job.group == value]
+                ready = sum(job.status == "AVAILABLE" for job in members)
+                bad = sum(job.status in FAILED for job in members)
+                tail_text = f" · {ready} 可更新" if ready else ""
+                tail_text += f" · {bad} 失败" if bad else ""
+                content.append((f"{self.rule} {GROUPS.get(value, value)} · {len(members)} 项{tail_text}", "1"))
+                continue
+            index, job = value, jobs[value]
             icon = (spinner if job.status in ACTIVE else self.icons["failed"] if job.status in FAILED
                     else self.icons["manual"] if job.status == "MANUAL" else self.icons["available"]
                     if job.status == "AVAILABLE" else self.icons["done"] if job.status != "SKIPPED"
@@ -158,7 +191,10 @@ class Terminal:
             color = "91" if job.status in FAILED else "93" if job.status in {"AVAILABLE", "UPDATING", "VERIFYING", "MANUAL"} else "92" if job.status in {"CURRENT", "UPDATED", "INSTALLED"} else "90" if job.status == "SKIPPED" else "96"
             prefix = self.pointer if index == self.selected else " "
             if wide:
-                main = f"{prefix} {fit(job.label, label_w)} {fit(job.current, ver_w)} {fit(job.latest, ver_w)} {status} · {int(job.elapsed())}s"
+                main = f"{prefix} {fit(job.label, label_w)} {fit(job.current, ver_w)} {fit(job.latest, ver_w)} "
+                if overlay_w:
+                    main += f"{fit(job.overlay or '—', overlay_w)} "
+                main += f"{status} · {int(job.elapsed())}s"
                 room = inner - width(main) - 3
                 if job.status in ACTIVE | FAILED and room >= 8:
                     last = self.last_line(job.role)
@@ -169,13 +205,15 @@ class Terminal:
             else:
                 content.append((f"{prefix} {job.label}  {status} · {int(job.elapsed())}s", color))
                 if rows >= 18:
-                    content.append((f"  {job.current} → {job.latest}", "90"))
-        if len(jobs) > capacity and rows >= 12:
-            content.append((f"显示 {first + 1}–{min(first + capacity, len(jobs))}/{len(jobs)} · ↑↓ 浏览", "90"))
+                    content.append((f"  {job.current} → {job.latest}" + (f" · 本地 {job.overlay}" if job.overlay else ""), "90"))
+        if len(entries) > capacity and rows >= 12:
+            content.append((f"显示 {len(shown)}/{len(jobs)} 项 · ↑↓ 浏览", "90"))
         content.append(("", "0"))
         chosen = jobs[self.selected]
         if self.show_logs and rows >= 18:
             header = f"日志 · {chosen.label}   [ / ] 滚动"
+            if chosen.detail and chosen.status not in FAILED:
+                content.append((f"说明 · {chosen.detail}", "90"))
             if self.offset:
                 header += " · 已暂停跟随，] 回到底部"
             content.append((header, "96"))
@@ -201,7 +239,8 @@ class Terminal:
             content.append((help_text, "90"))
         if rows < 12:
             content = [content[0], content[2],
-                       *[(f"{self.pointer if i == self.selected else ' '} {job.label} · {LABELS[job.status]}", "96") for i, job in visible],
+                       *[(f"{self.pointer if i == self.selected else ' '} {jobs[i].label} · {LABELS[jobs[i].status]}", "96")
+                         for kind, i in visible if kind == "job"],
                        content[-1]]
         limit = max(1, rows - 3)
         if len(content) > limit:
