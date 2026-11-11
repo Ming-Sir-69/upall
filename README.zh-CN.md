@@ -2,11 +2,11 @@
 
 [English](README.md) · [开发说明](docs/development.md) · [扩展方向](docs/roadmap.md)
 
-面向 AI CLI 的安装检测、版本检查和终端更新工具。默认操作统一为：
+面向 AI CLI、Agent 插件与常用维护工具的安装检测、版本检查和终端更新工具。界面按「AI 编程工具 / Agent 插件与技能 / 效率与维护 / 本机项目」分组；对自己维护的项目，会判断本地修改是否已被上游收录——已收录就直接用上游，未收录就保留本地修改（见 [本地修改与上游](docs/local-modifications.md)）。默认操作统一为：
 
 **自动检查 → 空格更新 → 回车退出**
 
-中文界面、固定数字提示、全角按键、同屏日志；运行时只依赖 Python 标准库。当前处于 0.1.x 初期开发阶段，主要验证环境是 macOS，其他 POSIX 环境仍属实验范围，原生 Windows 暂不支持。
+中文界面、固定数字提示、全角按键、同屏日志；运行时只依赖 Python 标准库。当前处于 0.x 初期开发阶段，主要验证环境是 macOS，其他 POSIX 环境仍属实验范围，原生 Windows 暂不支持。
 
 本仓库是从一个较大私有项目中抽离的通用模块。通用代码、测试和接口由这里维护；父项目负责本机配置、快捷入口、私有记录及依赖版本锁定。接入、配置、升级与回退规范见 [模块集成说明](docs/module-integration.md)。
 
@@ -51,6 +51,7 @@ upall
 |---|---|
 | upall | 自动发现已安装 CLI，检查后等空格更新 |
 | upall claude codex | 只检查指定工具，空格更新 |
+| upall agent / upall -g app | 只处理某一类（cli / agent / app / host） |
 | upall --list | 本机安装清单，不联网查询版本 |
 | upall --all | 同时展示缺少的候选并跳过 |
 | upall --plain / --json | 纯文本或最终 JSON，默认只检查、完成即退出 |

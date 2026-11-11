@@ -1,8 +1,9 @@
-"""Known AI tools and bounded installation discovery; never install during detection."""
-from dataclasses import dataclass, asdict
+"""Known tools and bounded installation discovery; never install during detection."""
+from dataclasses import dataclass, asdict, field
 import json
 import os
 from pathlib import Path
+import plistlib
 import shlex
 import shutil
 
@@ -10,24 +11,35 @@ TOOLS = {
     "claude": "Claude Code", "codex": "Codex", "kimi": "Kimi Code", "hermes": "Hermes",
     "gemini": "Gemini CLI", "grok": "Grok Build", "opencode": "OpenCode",
     "openclaw": "OpenClaw", "pi": "Pi", "mcode": "MiniMax Code",
+    "kimi-cu": "KimiCU", "kimi-webbridge": "Kimi WebBridge", "iphone-use": "iPhone Use",
+    "agent-desktop": "Agent Desktop", "mole": "Mole", "cc-switch": "CC Switch",
 }
+# Display groups, in screen order. Host-defined tools pick one of these keys.
+GROUPS = {"cli": "AI 编程工具", "agent": "Agent 插件与技能", "app": "效率与维护", "host": "本机项目"}
+ROLE_GROUPS = {"kimi-cu": "agent", "kimi-webbridge": "agent", "iphone-use": "agent",
+               "agent-desktop": "agent", "mole": "app", "cc-switch": "app"}
+# macOS app bundles that UPALL replaces from the vendor's own package after
+# signature checks: (bundle name, bundle id, launchd service to restart).
+APP_BUNDLES = {"kimi-cu": ("KimiCU", "ai.kimi.cu", "ai.kimi.cu.service"),
+               "cc-switch": ("CC Switch", "com.ccswitch.desktop", "")}
 DEMO_ROLES = ("claude", "codex", "kimi", "hermes")
 PACKAGES = {
     "claude": ("@anthropic-ai/claude-code",), "codex": ("@openai/codex",),
     "gemini": ("@google/gemini-cli",), "grok": ("@xai-official/grok",),
     "opencode": ("opencode-ai", "@opencode/cli"), "openclaw": ("openclaw",),
     "pi": ("@earendil-works/pi-coding-agent", "@mariozechner/pi-coding-agent"),
-    "mcode": ("@minimax-ai/code",),
+    "mcode": ("@minimax-ai/code",), "agent-desktop": ("agent-desktop",),
 }
 SOURCE_LABELS = {
     "npm": "npm", "brew": "Homebrew", "native": "官方原生", "script": "官方脚本",
     "source": "源码安装", "local": "项目依赖",
+    "app": "官方应用包", "host": "本机配置", "git": "Git 检出",
     "unknown": "来源待确认", "missing": "未安装", "demo": "演示",
 }
 BREW_PACKAGES = {
     "claude": {"claude-code", "claude-code@latest"}, "codex": {"codex"},
     "gemini": {"gemini-cli"}, "grok": {"grok"}, "opencode": {"opencode"},
-    "openclaw": {"openclaw"}, "pi": {"pi", "pi-coding-agent"}, "mcode": {"minimax-code"},
+    "openclaw": {"openclaw"}, "pi": {"pi", "pi-coding-agent"}, "mcode": {"minimax-code"}, "mole": {"mole"},
 }
 
 
@@ -45,13 +57,24 @@ class Installation:
     version: str = ""
     update_supported: bool = False
     reason: str = ""
+    label: str = ""
+    group: str = "cli"
+    spec: dict = field(default_factory=dict)
+    preserve: list = field(default_factory=list)
+
+    def __post_init__(self):
+        self.label = self.label or TOOLS.get(self.role, self.role)
+        if not self.spec:
+            self.group = ROLE_GROUPS.get(self.role, self.group)
 
     @property
     def installed(self):
         return bool(self.path)
 
     def public(self):
-        return dict(asdict(self), installed=self.installed, source_label=SOURCE_LABELS[self.source])
+        data = dict(asdict(self), installed=self.installed, source_label=SOURCE_LABELS[self.source])
+        data.pop("spec")
+        return data
 
 
 def read_json(path):
@@ -143,12 +166,45 @@ def classify(role, executable, home=None):
                     result.source, result.root = "source", str(root)
                     result.update_supported, result.reason = True, ""
                     return result
+    elif role in ("kimi-webbridge", "iphone-use") and (
+            "/.kimi-webbridge/bin/" in target.as_posix() or ".app/Contents/MacOS/" in target.as_posix()):
+        # Both ship their own verified upgrade command.
+        result.source, result.update_supported, result.reason = "native", True, ""
+    elif role == "mole" and ((target.parent / "lib/core/common.sh").exists() or "SCRIPT_DIR=" in _head(target)):
+        result.source, result.update_supported, result.reason = "script", True, ""
     elif role == "opencode" and "/.opencode/bin/" in target.as_posix():
         result.source, result.update_supported, result.reason = "native", True, ""
     elif role == "grok" and any("/.grok/bin/" in str(path) or "/.grok/downloads/grok-" in str(path)
                                 for path in (entry, target)):
         result.source, result.update_supported, result.reason = "native", True, ""
     return result
+
+
+def _head(path):
+    try:
+        with open(path, "rb") as file:
+            return file.read(16384).decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+
+def app_info(bundle):
+    try:
+        with (Path(bundle) / "Contents/Info.plist").open("rb") as file:
+            info = plistlib.load(file)
+        return {"id": str(info.get("CFBundleIdentifier", "")),
+                "version": str(info.get("CFBundleShortVersionString", ""))}
+    except (OSError, ValueError, plistlib.InvalidFileException):
+        return {}
+
+
+def find_app(role, directories):
+    name, bundle_id, _ = APP_BUNDLES[role]
+    for directory in directories:
+        candidate = Path(directory) / f"{name}.app"
+        if app_info(candidate).get("id") == bundle_id:
+            return Installation(role, str(candidate), "app", update_supported=True)
+    return Installation(role)
 
 
 def discover(search_path=None, home=None):
@@ -164,9 +220,21 @@ def discover(search_path=None, home=None):
             if os.environ.get(key):
                 extra = Path(os.environ[key]).expanduser()
                 search_path += os.pathsep + str(extra / "bin" if key == "MCODE_INSTALL_DIR" else extra)
+    if not explicit:
+        search_path += os.pathsep + os.pathsep.join(str(p) for p in (
+            home / ".kimi-webbridge/bin", home / "Applications/iPhoneUse.app/Contents/MacOS",
+            Path("/Applications/iPhoneUse.app/Contents/MacOS")))
+    app_dirs = os.environ.get("UPALL_APP_DIRS")
+    app_dirs = ([p for p in app_dirs.split(os.pathsep) if p] if app_dirs is not None else
+                [] if explicit else ["/Applications", str(home / "Applications")])
     found = {}
     for role in TOOLS:
+        if role in APP_BUNDLES:
+            found[role] = find_app(role, app_dirs)
+            continue
         path = shutil.which(role, path=search_path)
+        if not path and role == "mole":
+            path = shutil.which("mo", path=search_path)
         found[role] = classify(role, path, home) if path else Installation(role)
     return found
 

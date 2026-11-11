@@ -40,3 +40,11 @@ The first release keeps existing channel/version-verification behavior. Fast-mov
 ## 0.1.1 configuration follow-up
 
 The XDG specification requires absolute base-directory values. The previous state-path fallback accepted a relative XDG_STATE_HOME; version 0.1.1 ignores that invalid value and uses the home-directory fallback. The explicit UPALL_LOG_ROOT host override remains separate. A regression case covers relative/absolute XDG values and override precedence. The full nine-case unittest suite passed after this change.
+
+## 0.11.0 plugins, app bundles and host tools
+
+- App bundle replacement downloads only from pinned hosts (cdn.kimi.com, github.com), requires the manifest sha256 when published, a strict `codesign --verify --deep` result and a Developer ID team equal to the installed copy (and to the manifest's team). The bundle id and version inside the archive must match. The old bundle is renamed into the owner-only state root, and is renamed back if the swap fails.
+- A running app is asked to quit through its own Apple Event and reopened afterwards; nothing is force-killed. Background services are restarted with `launchctl kickstart` only when registered.
+- Host config is executable configuration: it must be owned by the user, not group/world-writable, and use absolute program paths; argv is never passed through a shell. Isolated runs ignore the default file. Adapter output is parsed as JSON and sanitized before display.
+- Git convergence backs up refs before moving them, never touches a dirty work tree, aborts a failed rebase and only deletes branches whose every commit upstream already carries (archived under refs/upall/archive/).
+- Preserved paths are copied into the owner-only state root; restore never follows symlinks out of the recorded path.
