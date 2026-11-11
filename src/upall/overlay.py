@@ -37,7 +37,7 @@ class Overlay:
             parts.append(f"保留 {self.local}")
         if self.absorbed:
             parts.append(f"已收敛 {self.absorbed}")
-        return " · ".join(parts) or ("无" if not self.note else self.note)
+        return " · ".join(parts) or "无"  # notes go to the job detail, not the column
 
 
 def classify_branch(git, upstream, ref):
