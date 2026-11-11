@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.0 — 2026-11-11
+
+- Agent plugins and maintenance tools join the catalog: KimiCU, Kimi WebBridge, iPhone Use, Agent Desktop, Mole and CC Switch, each through its vendor's own update channel. App bundles (KimiCU, CC Switch) are swapped only after sha256 (when published), strict code-signature and same-team checks, with the previous bundle kept as a rollback copy.
+- The table is grouped: AI 编程工具, Agent 插件与技能, 效率与维护 and 本机项目, each header showing its count and how many can update. `upall agent` / `-g app` limit a batch to a group. Up to four checks run in parallel.
+- Host-defined tools in an owner-only JSON config (adapter commands or git checkouts) and a new 本地修改 column: UPALL tells which local modifications upstream has absorbed (use upstream) and which are still ours (keep them), predicts conflicts and leaves conflicting work untouched. See docs/local-modifications.md.
+- Customised copies listed under `preserve` (for example a slimmed agent skill) survive an upstream refresh; symlinked skill copies stay symlinks after Kimi WebBridge upgrades.
+
 ## 0.10.0 — 2026-10-30
 
 - Remove the desktop application module (by owner decision): Claude Desktop and ChatGPT leave the catalog, so upall is CLI-only again. The download speed of desktop packages was dominated by the local network route and the feature was not worth its complexity.

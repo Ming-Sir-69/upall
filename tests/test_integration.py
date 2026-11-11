@@ -21,6 +21,9 @@ class IntegrationTests(unittest.TestCase):
     def test_workers(self):
         self.scenario("workers")
 
+    def test_plugins(self):
+        self.scenario("plugins")
+
     def test_terminal(self):
         self.scenario("interface")
 

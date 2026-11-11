@@ -18,6 +18,8 @@ class Job:
     source: str = "missing"
     installed: bool = False
     update_supported: bool = False
+    group: str = "cli"
+    overlay: str = ""
 
     def elapsed(self):
         return max(0, (self.ended or time.monotonic()) - self.started) if self.started else 0

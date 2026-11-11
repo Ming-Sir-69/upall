@@ -83,7 +83,7 @@ with tempfile.TemporaryDirectory(prefix="upall-discovery-") as tmp:
     inventory = discover(search_path=str(prefix / "bin"), home=home)
     assert inventory["codex"].installed
     assert not inventory["claude"].installed  # Explicit search path does not fall through to another install.
-    assert set(inventory) == set(TOOLS) and len(inventory) == 10
+    assert set(inventory) == set(TOOLS) and len(inventory) == 16
     empty = discover(search_path=str(root / "empty"), home=home)
     assert all(not item.installed for item in empty.values())
 print("PASS: npm/native/brew/local/unknown identities, stable channel, legacy namespace, bounded detection")
@@ -95,7 +95,7 @@ with tempfile.TemporaryDirectory(prefix="upall-empty-") as tmp:
                             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=5)
     assert result.returncode == 0, result.stderr
     report = json.loads(result.stdout)
-    assert len(report["jobs"]) == 10
+    assert len(report["jobs"]) == 16
     assert all(job["status"] == "SKIPPED" for job in report["jobs"])
     assert not (Path(tmp) / "latest/report.json").exists(), "inventory replaced the last update report"
     result = subprocess.run([sys.executable, str(script), "--json"], env=env,

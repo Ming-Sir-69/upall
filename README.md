@@ -58,6 +58,7 @@ An IME may consume a key while composing text or selecting a candidate. PTY test
 ~~~sh
 upall                 # Discover installed CLIs and check; wait for Space
 upall claude codex    # Limit the batch to these tools
+upall agent           # Only one group: cli, agent, app or host (also -g)
 upall --list          # Local inventory, including missing tools
 upall --all           # Include missing candidates; skip, never install them
 upall --json          # Final report; check only and exit
@@ -71,14 +72,14 @@ The upcheck command is a compatibility alias for the same check-first flow. Redi
 
 ## Detection and updates
 
-The known catalog includes Claude Code, Codex, Kimi Code, Hermes, Gemini CLI, Grok Build, OpenCode, OpenClaw, Pi and MiniMax Code.
+The known catalog includes Claude Code, Codex, Kimi Code, Hermes, Gemini CLI, Grok Build, OpenCode, OpenClaw, Pi and MiniMax Code (AI 编程工具); KimiCU, Kimi WebBridge, iPhone Use and Agent Desktop (Agent 插件与技能); Mole and CC Switch (效率与维护). Projects you maintain yourself can be added as host-defined tools, and UPALL reports which of your local modifications upstream has already absorbed; see [local modifications](docs/local-modifications.md).
 
 - Missing tools stay missing. This is an updater, not an automatic installer.
 - npm and Homebrew installations use the detected package and manager prefix. A command under a Homebrew bin directory can still belong to npm.
 - Known native/script installations use the corresponding official updater or installer.
 - Unknown or project-local installations require manual handling.
 - Installation success is followed by a fresh version check.
-- Checks run concurrently, with at most three workers. Installs sharing an npm prefix or Homebrew are serialized.
+- Checks run concurrently, with at most four workers. Installs sharing an npm prefix or Homebrew are serialized.
 
 See [the support matrix](docs/adapters.md) for adapter boundaries. Tests use fake tools; a fixture passing does not prove every real installation variant works.
 

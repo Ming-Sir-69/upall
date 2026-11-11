@@ -1,45 +1,73 @@
 """Concurrent version checks and explicit update execution."""
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
+import hashlib
 import json
 import os
 from pathlib import Path
+import platform
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import tempfile
 import threading
 import time
-from .discovery import TOOLS, PACKAGES, Installation, discover
+import urllib.parse
+from .discovery import APP_BUNDLES, GROUPS, PACKAGES, Installation, app_info, discover
 from .models import Job
+from . import overlay as overlays
 from .status import LABELS
 from .util import atomic, clean, private_directory
+
+VERSION = re.compile(r"\d+\.\d+\.\d+(?:[-+][\w.-]+)?")
+GITHUB_LATEST = {"cc-switch": "farion1231/cc-switch", "mole": "tw93/Mole"}
+
+
+def newer(current, latest):
+    """True when current is a strictly newer release than latest (never downgrade)."""
+    try:
+        core = lambda v: tuple(map(int, v.lstrip("vV").split("-", 1)[0].split("+", 1)[0].split(".")))
+        return core(current) > core(latest)
+    except ValueError:
+        return False
 
 
 class CommandError(Exception):
     pass
 
 
+class ManualError(Exception):
+    """The tool's own check says it must be handled by hand."""
+
+
 class Engine:
-    def __init__(self, args, roles, log_dir, installations=None):
+    def __init__(self, args, roles, log_dir, installations=None, preserve=None):
         self.args, self.log_dir = args, log_dir
         self.mode = "inventory" if getattr(args, "inventory", False) else "check" if args.check else "update"
         self.state_dir = log_dir / "state"
         private_directory(self.state_dir)
         self.hermes_root = Path.home() / ".hermes/hermes-agent"
         self.installations = installations or (dict.fromkeys(roles) if args.demo else discover(os.environ.get("UPALL_SEARCH_PATH")))
+        self.preserve = preserve or {}
+        self.meta = {}
         self.jobs = {}
         for role in roles:
-            found = Installation(role, role, "demo", update_supported=True) if args.demo else self.installations[role]
+            found = self.installations.get(role)
+            if args.demo:
+                known = found if isinstance(found, Installation) else Installation(role)
+                found = Installation(role, role, "demo", update_supported=True,
+                                     label=known.label, group=known.group)
             self.installations[role] = found
-            self.jobs[role] = Job(role, TOOLS[role], path=found.path, source=found.source,
-                                  installed=found.installed, update_supported=found.update_supported)
+            self.jobs[role] = Job(role, found.label, path=found.path, source=found.source, group=found.group,
+                                  installed=found.installed, update_supported=found.update_supported,
+                                  overlay=self.preserve_text(role))
         if "hermes" in self.installations and self.installations["hermes"].root:
             self.hermes_root = Path(self.installations["hermes"].root)
         self.guard = threading.RLock()
         self.stop = threading.Event()
-        self.pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="upall")
+        self.pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="upall")
         self.futures = []
         self.started = time.monotonic()
         self.finished = 0
@@ -73,14 +101,24 @@ class Engine:
             self.finished = time.monotonic()
         return done
 
-    def command(self, role, command, *, capture=False, timeout=30, env=None):
+    def preserve_text(self, role):
+        count = len(self.preserve.get(role, ()))
+        return f"保留 {count}" if count else ""
+
+    def log(self, role, text):
+        with (self.log_dir / f"{role}.log").open("a") as log:
+            log.write(clean(text) + "\n")
+
+    def command(self, role, command, *, capture=False, timeout=30, env=None, code=False, merge=False, cwd=None):
+        """Run argv; capture returns stdout, code returns the exit status instead of raising."""
         if self.stop.is_set():
             raise CommandError("已停止")
         with (self.log_dir / f"{role}.log").open("ab", buffering=0) as log, tempfile.TemporaryFile() as output:
             log.write(("$ " + shlex.join(map(str, command)) + "\n").encode())
             process = subprocess.Popen(command, stdin=subprocess.DEVNULL,
-                                       stdout=output if capture else log, stderr=log,
-                                       env=env, start_new_session=True, cwd=Path.home())
+                                       stdout=output if capture else log,
+                                       stderr=output if capture and merge else log,
+                                       env=env, start_new_session=True, cwd=cwd or Path.home())
             deadline = time.monotonic() + timeout
             while process.poll() is None:
                 if self.stop.wait(0.08) or time.monotonic() >= deadline:
@@ -103,11 +141,64 @@ class Engine:
                 text = output.read(4 * 1024 * 1024).decode("utf-8", "replace").strip()
                 if text:
                     log.write((text + "\n").encode())
+            if code:
+                return process.returncode
             if process.returncode:
                 raise CommandError(f"命令退出码 {process.returncode}")
             return text
 
+    def git(self, role, repo):
+        def run(*args, code=False, timeout=60):
+            return self.command(role, ["git", "-C", repo, *args], capture=not code, code=code, timeout=timeout)
+        return run
+
+    def fetch_json(self, role, url, timeout=20):
+        output = self.command(role, ["curl", "-fsSL", "--connect-timeout", "8", "--max-time", str(timeout),
+                                     "-H", "Accept: application/vnd.github+json", "-H", "User-Agent: upall", url],
+                              capture=True, timeout=timeout + 5)
+        try:
+            return json.loads(output)
+        except ValueError:
+            raise CommandError("远端返回的不是 JSON") from None
+
+    def tool_json(self, role, argv, timeout=60):
+        output = self.command(role, argv, capture=True, timeout=timeout)
+        start = output.find("{")
+        try:
+            data = json.loads(output[start:]) if start >= 0 else None
+        except ValueError:
+            data = None
+        if not isinstance(data, dict):
+            raise CommandError("工具未返回有效 JSON")
+        return data
+
+    def webbridge_status(self, role):
+        found = self.installations[role]
+        data = self.tool_json(role, [found.path, "status"], timeout=20)
+        if not data.get("running"):
+            raise CommandError("WebBridge 守护进程未运行；先执行 kimi-webbridge start")
+        return data
+
     def current_version(self, role):
+        found = self.installations[role]
+        kind = found.spec.get("kind")
+        if kind == "command":
+            data = self.tool_json(role, found.spec["check"], timeout=min(600, found.spec["timeout"]))
+            self.meta[role] = data
+            return clean(str(data.get("current", "")))[:40] or "-"
+        if kind == "git":
+            git = self.git(role, found.spec["repo"])
+            return git("rev-parse", "--short=8", "HEAD")
+        if role in APP_BUNDLES:
+            version = app_info(found.path).get("version", "")
+            self.log(role, f"{found.path} · CFBundleShortVersionString={version}")
+            if not VERSION.fullmatch(version) and not re.fullmatch(r"\d+\.\d+", version):
+                raise CommandError("未读到应用版本")
+            return version
+        if role == "kimi-webbridge":
+            data = self.webbridge_status(role)
+            self.meta[role] = data
+            return str(data.get("version", "")).removeprefix("v") or "-"
         if role == "hermes":
             result = self.command(role, ["git", "-C", str(self.hermes_root), "rev-parse", "--short=8", "HEAD"], capture=True)
             if not re.fullmatch(r"[0-9a-f]{8,40}", result):
@@ -121,6 +212,68 @@ class Engine:
 
     def latest_version(self, role):
         found = self.installations[role]
+        kind = found.spec.get("kind")
+        if kind == "command":
+            data = self.meta.get(role) or {}
+            if data.get("manual"):
+                raise ManualError(clean(str(data["manual"]))[:200])
+            info = data.get("overlay") or {}
+            if info:
+                state = overlays.Overlay(local=int(info.get("local", 0)), absorbed=int(info.get("absorbed", 0)),
+                                         conflict=bool(info.get("conflict")), note=clean(str(info.get("note", "")))[:80])
+                self.update(role, overlay=state.text())
+            return clean(str(data.get("latest", "")))[:40] or "-"
+        if kind == "git":
+            git = self.git(role, found.spec["repo"])
+            state = overlays.git_state(git, found.spec["remote"], found.spec["branch"])
+            self.meta[role] = state
+            self.update(role, overlay=state["overlay"].text(), detail=state["overlay"].note)
+            if state["behind"] == 0:
+                return git("rev-parse", "--short=8", "HEAD")
+            return state["upstream"][:8]
+        if role == "kimi-cu":
+            data = self.fetch_json(role, "https://cdn.kimi.com/kimi-computer-use/latest/version.json")
+            package = data.get("app" if platform.machine() == "arm64" else "app_x86_64") or {}
+            url = str(package.get("url", ""))
+            parsed = urllib.parse.urlparse(url)
+            if parsed.scheme != "https" or parsed.hostname != "cdn.kimi.com" or \
+                    not re.fullmatch(r"[0-9a-f]{64}", str(package.get("sha256", ""))):
+                raise CommandError("KimiCU 更新清单无效")
+            self.meta[role] = {"url": url, "sha256": package["sha256"], "team": str(package.get("team_id", ""))}
+            version = str(data.get("version", ""))
+            if not VERSION.fullmatch(version):
+                raise CommandError("未读到有效的最新版本")
+            return version
+        if role == "cc-switch":
+            data = self.fetch_json(role, f"https://api.github.com/repos/{GITHUB_LATEST[role]}/releases/latest")
+            version = str(data.get("tag_name", "")).removeprefix("v")
+            url = next((str(a.get("browser_download_url", "")) for a in data.get("assets", [])
+                        if str(a.get("name", "")).endswith("-macOS.zip")), "")
+            parsed = urllib.parse.urlparse(url)
+            if not VERSION.fullmatch(version) or parsed.scheme != "https" or parsed.hostname != "github.com":
+                raise CommandError("CC Switch 发布信息无效")
+            self.meta[role] = {"url": url}
+            return version
+        if role == "mole" and found.source != "brew":
+            for release in self.fetch_json(role, f"https://api.github.com/repos/{GITHUB_LATEST[role]}/releases?per_page=15"):
+                tag = str(release.get("tag_name", ""))
+                if re.fullmatch(r"V\d+\.\d+\.\d+", tag) and not release.get("draft") and not release.get("prerelease"):
+                    return tag[1:]
+            raise CommandError("未找到 Mole 正式版")
+        if role == "kimi-webbridge":
+            data = self.meta.get(role) or self.webbridge_status(role)
+            target = (data.get("version_mismatch") or {}).get("extension") or \
+                (data.get("update_available") or {}).get("latest") or data.get("version", "")
+            target = str(target).removeprefix("v")
+            if not VERSION.fullmatch(target):
+                raise CommandError("WebBridge 未返回有效版本")
+            return target
+        if role == "iphone-use":
+            data = self.tool_json(role, [found.path, "upgrade", "--json"], timeout=45)
+            version = str(data.get("latest", ""))
+            if not VERSION.fullmatch(version):
+                raise CommandError("未读到有效的最新版本")
+            return version
         if found.source == "brew":
             data = json.loads(self.command(role, [found.manager, "info", "--json=v2",
                 "--cask" if found.cask else "--formula", found.package], capture=True, timeout=60))
@@ -163,13 +316,50 @@ class Engine:
         while not lock.acquire(timeout=.1):
             if self.stop.is_set():
                 raise CommandError("已停止")
+        records = []
         try:
+            paths = list(self.preserve.get(role, ()))
+            if role == "kimi-webbridge":
+                # The upgrade rewrites every installed skill copy; links must stay links.
+                paths += [Path(item["path"]) for item in (self.meta.get(role) or {}).get("skills", [])
+                          if isinstance(item, dict) and Path(str(item.get("path", ""))).is_symlink()]
+            if paths:
+                records = overlays.snapshot(paths, self.state_dir / "preserve" / role)
             self.install_one(role)
         finally:
-            lock.release()
+            try:
+                if records:
+                    kept = overlays.restore(records, lambda text: self.log(role, text))
+                    if kept:
+                        self.update(role, overlay=f"保留 {kept}")
+            finally:
+                lock.release()
 
     def install_one(self, role):
         found = self.installations[role]
+        kind = found.spec.get("kind")
+        if kind == "command":
+            self.command(role, found.spec["update"], timeout=found.spec["timeout"])
+            return
+        if kind == "git":
+            git = self.git(role, found.spec["repo"])
+            try:
+                overlays.git_converge(git, found.spec["remote"], found.spec["branch"], self.meta[role],
+                                      lambda text: self.log(role, text))
+            except RuntimeError as error:
+                raise CommandError(str(error)) from None
+            if found.spec.get("after_update"):
+                self.command(role, found.spec["after_update"], timeout=found.spec["timeout"], cwd=found.spec["repo"])
+            return
+        if role in APP_BUNDLES:
+            self.install_app(role)
+            return
+        if role in ("kimi-webbridge", "iphone-use"):
+            self.command(role, [found.path, "upgrade"], timeout=900)
+            return
+        if role == "mole" and found.source != "brew":
+            self.command(role, [found.path, "update"], timeout=900)
+            return
         if found.source == "brew":
             self.command(role, [found.manager, "upgrade", "--cask" if found.cask else "--formula", found.package], timeout=1200)
             return
@@ -179,9 +369,10 @@ class Engine:
         if found.source == "npm":
             command = [found.manager, "install", "--global", "--prefix", found.prefix,
                        found.package + "@" + self.jobs[role].latest]
-            if role in ("claude", "mcode"):
+            if role in ("claude", "mcode", "agent-desktop"):
                 command += ["--ignore-scripts=false", "--include=optional", "--allow-scripts=" +
-                            ("@anthropic-ai/claude-code" if role == "claude" else "@minimax-ai/code,better-sqlite3")]
+                            {"claude": "@anthropic-ai/claude-code", "mcode": "@minimax-ai/code,better-sqlite3",
+                             "agent-desktop": "agent-desktop"}[role]]
             self.command(role, command, timeout=1200,
                          env=dict(os.environ, PATH=str(Path(found.manager).parent) + os.pathsep + os.environ.get("PATH", "")))
             return
@@ -200,6 +391,111 @@ class Engine:
         else:
             arguments = ["upgrade", "--method", "curl"] if role == "opencode" else ["update"]
             self.command(role, [found.path, *arguments, *(["--yes"] if role == "hermes" else [])], timeout=1200)
+
+    def team(self, role, bundle):
+        output = self.command(role, ["codesign", "-d", "--verbose=2", str(bundle)], capture=True, merge=True)
+        match = re.search(r"^TeamIdentifier=([A-Z0-9]{10})$", output, re.M)
+        return match.group(1) if match else ""
+
+    def app_running(self, bundle):
+        return subprocess.run(["pgrep", "-f", f"{bundle}/Contents/MacOS/"], capture_output=True).returncode == 0
+
+    def install_app(self, role):
+        """Replace an app bundle with the vendor's package after signature checks.
+
+        Trust anchors: manifest sha256 when offered, a valid strict code
+        signature, and the same Developer ID team as the installed copy.
+        The previous bundle is kept as the role's single rollback copy.
+        """
+        name, bundle_id, service = APP_BUNDLES[role]
+        found = self.installations[role]
+        meta = self.meta.get(role) or {}
+        destination = Path(found.path)
+        work = self.log_dir / f"{role}-package"
+        shutil.rmtree(work, ignore_errors=True)
+        work.mkdir(mode=0o700)
+        archive = work / "package.zip"
+        self.command(role, ["curl", "-fsSL", "--retry", "3", "--retry-delay", "2", "--connect-timeout", "20",
+                            "--max-time", "1500", meta["url"], "-o", str(archive)], timeout=1600)
+        if meta.get("sha256"):
+            digest = hashlib.sha256()
+            with archive.open("rb") as file:
+                for chunk in iter(lambda: file.read(1 << 20), b""):
+                    digest.update(chunk)
+            if digest.hexdigest() != meta["sha256"]:
+                raise CommandError("更新包 sha256 校验失败")
+        self.command(role, ["ditto", "-x", "-k", str(archive), str(work / "x")], timeout=300)
+        apps = [p for p in (work / "x").glob("*.app") if app_info(p).get("id") == bundle_id]
+        if len(apps) != 1:
+            raise CommandError("更新包中未找到对应的应用")
+        unpacked = apps[0]
+        if app_info(unpacked).get("version") != self.jobs[role].latest:
+            raise CommandError(f"更新包版本不符：{app_info(unpacked).get('version')}")
+        self.command(role, ["codesign", "--verify", "--deep", "--strict", str(unpacked)], timeout=180)
+        expected = self.team(role, destination)
+        if not expected or self.team(role, unpacked) != expected or (meta.get("team") and meta["team"] != expected):
+            raise CommandError("更新包签名团队与已安装应用不一致")
+        reopen = False
+        if self.app_running(destination):
+            if not service:
+                self.command(role, ["osascript", "-e", f'tell application id "{bundle_id}" to quit'], timeout=20, code=True)
+                for _ in range(60):
+                    if not self.app_running(destination) or self.stop.wait(.25):
+                        break
+                if self.app_running(destination):
+                    raise CommandError(f"{name} 仍在运行；退出后按 2 重试")
+                reopen = True
+        backups = private_directory(self.log_dir.parent / "backups")
+        backup = backups / f"{name}.app"
+        shutil.rmtree(backup, ignore_errors=True)
+        try:
+            os.rename(destination, backup)
+        except OSError:
+            self.command(role, ["ditto", str(destination), str(backup)], timeout=300)
+            shutil.rmtree(destination)
+        try:
+            try:
+                os.rename(unpacked, destination)
+            except OSError:
+                self.command(role, ["ditto", str(unpacked), str(destination)], timeout=300)
+        except BaseException:
+            shutil.rmtree(destination, ignore_errors=True)
+            os.rename(backup, destination)
+            raise
+        self.log(role, f"旧版本保留在 {backup}")
+        shutil.rmtree(work, ignore_errors=True)
+        if service:
+            uid = os.getuid()
+            if self.command(role, ["launchctl", "print", f"gui/{uid}/{service}"], capture=True, code=True) == 0:
+                self.command(role, ["launchctl", "kickstart", "-k", f"gui/{uid}/{service}"], timeout=30)
+        if reopen:
+            self.command(role, ["open", "-g", "-b", bundle_id], timeout=30, code=True)
+
+    def verify(self, role, latest):
+        """Read the version after an update; returns (current, ok)."""
+        found = self.installations[role]
+        kind = found.spec.get("kind")
+        if kind == "git":
+            git = self.git(role, found.spec["repo"])
+            after = git("rev-parse", "--short=8", "HEAD")
+            upstream = f"{found.spec['remote']}/{found.spec['branch']}"
+            return after, git("merge-base", "--is-ancestor", upstream, "HEAD", code=True) == 0
+        if role == "kimi-webbridge":
+            for _ in range(40):
+                try:
+                    data = self.webbridge_status(role)
+                    after = str(data.get("version", "")).removeprefix("v")
+                    return after, after == latest
+                except CommandError:
+                    if self.stop.wait(.5):
+                        break
+            raise CommandError("升级后 WebBridge 守护进程未恢复")
+        after = self.current_version(role)
+        if kind == "command":
+            # The adapter's own fresh check decides: current must now equal its latest.
+            data = self.meta.get(role) or {}
+            return after, after == clean(str(data.get("latest", "")))[:40]
+        return after, after == latest
 
     def demo(self, role, install):
         self.stop.wait(0.35)
@@ -240,13 +536,14 @@ class Engine:
                 self.update(role, status="INSTALLED")
                 return
             phase = "CONNECTION-FAILED"
-            latest = self.latest_version(role)
+            try:
+                latest = self.latest_version(role)
+            except ManualError as error:
+                self.update(role, status="MANUAL", detail=str(error))
+                return
             # A stable channel may lag an already-installed newer release; never downgrade.
-            if role != "hermes":
-                current_core = tuple(map(int, current.split("-", 1)[0].split("+", 1)[0].split(".")))
-                latest_core = tuple(map(int, latest.split("-", 1)[0].split("+", 1)[0].split(".")))
-                if current_core > latest_core:
-                    latest = current
+            if role != "hermes" and newer(current, latest):
+                latest = current
             self.update(role, latest=latest)
             if current == latest:
                 self.update(role, status="CURRENT")
@@ -258,9 +555,9 @@ class Engine:
             self.update(role, status="UPDATING")
             self.install(role)
             self.update(role, status="VERIFYING")
-            after = self.current_version(role)
+            after, ok = self.verify(role, latest)
             self.update(role, current=after)
-            if after != latest:
+            if not ok:
                 raise CommandError(f"更新未生效：current={after} expected={latest}")
             self.update(role, status="UPDATED")
         except Exception as error:
@@ -277,7 +574,8 @@ class Engine:
         return {"schema": 1, "mode": self.mode, "demo": self.args.demo,
                 "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
                 "elapsed": round((self.finished or time.monotonic()) - self.started, 2),
-                "log_dir": str(self.log_dir), "inventory": [item.public() for item in self.installations.values()],
+                "log_dir": str(self.log_dir), "groups": GROUPS,
+                "inventory": [item.public() for item in self.installations.values() if isinstance(item, Installation)],
                 "jobs": [dict(asdict(job), elapsed=round(job.elapsed(), 2)) for job in self.snapshot()]}
 
     def save(self):

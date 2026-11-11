@@ -14,6 +14,14 @@ Discovery checks PATH and bounded common installation directories, plus explicit
 | OpenClaw | Matching npm/Homebrew provenance; uses its own dry-run/update protocol |
 | Pi | Known npm package namespace or known Homebrew formula |
 | MiniMax Code | Matching npm package or known official installer root |
+| KimiCU | App bundle KimiCU.app (bundle id ai.kimi.cu) in /Applications or ~/Applications |
+| Kimi WebBridge | ~/.kimi-webbridge/bin/kimi-webbridge (official daemon layout) |
+| iPhone Use | iphone-use inside iPhoneUse.app, or a PATH link to it |
+| Agent Desktop | Matching global npm package agent-desktop |
+| Mole | Official script install (lib/ next to the entry or pinned SCRIPT_DIR) or Homebrew formula |
+| CC Switch | App bundle CC Switch.app (bundle id com.ccswitch.desktop) |
+
+Tools are shown in groups: AI 编程工具 (cli), Agent 插件与技能 (agent), 效率与维护 (app) and 本机项目 (host). `upall agent` or `upall -g app` limits a batch to one group.
 
 Unknown provenance and project-local dependencies are manual. A discovered executable that cannot run is a query failure rather than an instruction to reinstall. Source package aliases do not automatically migrate between namespaces.
 
@@ -27,6 +35,11 @@ Unknown provenance and project-local dependencies are manual. A discovered execu
 - OpenClaw: invoke update --dry-run --json to find its target and update --yes to apply.
 - OpenCode native: invoke upgrade --method curl.
 - Grok native: invoke update.
+- KimiCU: read https://cdn.kimi.com/kimi-computer-use/latest/version.json; during an update download that package only from cdn.kimi.com, require its sha256, a strict code signature and the same Developer ID team as both the manifest and the installed copy, swap the bundle (previous copy kept under the state root's backups/), then restart its launchd service.
+- CC Switch: read the GitHub latest release of farion1231/cc-switch; download its -macOS.zip from github.com, require a strict signature from the installed copy's team, quit the running app politely, swap the bundle and reopen it in the background.
+- Kimi WebBridge: read `kimi-webbridge status` (daemon version, update_available, version_mismatch pairing with the browser extension) and run `kimi-webbridge upgrade`; skill copies that were symlinks are restored as symlinks afterwards.
+- iPhone Use: `iphone-use upgrade --json` to check and `iphone-use upgrade` to apply.
+- Mole: newest V<x.y.z> GitHub release of tw93/Mole (prereleases and platform tags ignored); `mo update` for script installs, brew upgrade for Homebrew.
 - MiniMax script: download https://filecdn.minimax.chat/public/install.sh; retain the detected install root and suppress persistent PATH edits.
 
 Official upstream references:
@@ -43,3 +56,7 @@ The initial live environment validated Claude, Codex, Kimi and Hermes detection/
 
 Strict revision equality for Hermes and fast-moving release channels can need refinement if a new release appears between check and installation. No downgrade is intended. Compare the exact target in the log before reporting an updater bug.
 
+
+## Host-defined tools
+
+Projects the host maintains itself (forks, overlays, custom install layouts) are declared in an owner-only JSON file, $UPALL_CONFIG or $XDG_CONFIG_HOME/upall/tools.json. A definition with the id of a built-in tool replaces it. See [local modifications](local-modifications.md) for the format and how UPALL decides between upstream and our own changes. Isolated runs (UPALL_SEARCH_PATH set) never read the default file.
