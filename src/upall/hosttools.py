@@ -10,7 +10,8 @@ The config describes what the host itself maintains, so UPALL can tell
     {"id": "some-fork", "label": "Some Fork", "group": "host", "kind": "git",
      "repo": "/abs/checkout", "remote": "origin", "branch": "main"}
   ],
-  "preserve": {"kimi-webbridge": ["~/.codex/skills/kimi-webbridge"]}
+  "preserve": {"some-tool": ["~/.config/some-tool/custom.json"]},
+  "after_update": {"kimi-webbridge": ["/abs/rebuild-our-skill-entry", "--quiet"]}
 }
 
 A command tool's check prints one JSON object:
@@ -20,6 +21,9 @@ A command tool's check prints one JSON object:
 
 "preserve" lists customised copies (skills, configs) that an upstream update
 would overwrite; UPALL snapshots them before the update and puts them back.
+"after_update" runs a host command once a tool's update succeeded, to re-apply
+a modification on top of the new release (only our change stays ours, the
+rest follows upstream).
 """
 import json
 import os
@@ -58,10 +62,13 @@ def _argv(value, name):
 
 
 def load(path=None):
-    """Return (tools: {id: Installation}, preserve: {role: [Path]}); raise ConfigError."""
+    """Return (tools, preserve, after_update); raise ConfigError.
+
+    tools: {id: Installation}; preserve: {role: [Path]}; after_update: {role: argv}.
+    """
     path = config_path() if path is None else path
     if path is None or not path.exists():
-        return {}, {}
+        return {}, {}, {}
     info = path.stat()
     if info.st_uid != os.getuid() or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
         raise ConfigError(f"{path} 必须属于当前用户且不可被他人写入")
@@ -111,4 +118,7 @@ def load(path=None):
         if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
             raise ConfigError(f"preserve.{role} 必须是路径数组")
         preserve[role] = [Path(p).expanduser() for p in paths]
-    return tools, preserve
+    hooks = {}
+    for role, argv in (data.get("after_update") or {}).items():
+        hooks[role] = _argv(argv, f"after_update.{role}")
+    return tools, preserve, hooks

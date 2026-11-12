@@ -98,10 +98,10 @@ def main(argv=None):
     args.demo = args.demo or os.environ.get("UPALL_TEST_MODE") == "1"
     installations = discover(os.environ.get("UPALL_SEARCH_PATH"))
     try:
-        host, preserve = hosttools.load()
+        host, preserve, hooks = hosttools.load()
     except hosttools.ConfigError as error:
         print(f"upall: 忽略本机配置：{error}", file=sys.stderr)
-        host, preserve = {}, {}
+        host, preserve, hooks = {}, {}, {}
     installations.update(host)  # host definitions override built-ins with the same id
     groups = set(args.group or ()) | {name for name in args.tools if name in GROUPS}
     args.tools = [name for name in args.tools if name not in GROUPS]
@@ -151,7 +151,7 @@ def main(argv=None):
         if not args.retry:
             for role in roles:
                 (log_dir / f"{role}.log").write_text("")
-        engine = Engine(args, roles, log_dir, installations, preserve)
+        engine = Engine(args, roles, log_dir, installations, preserve, hooks)
         for role in roles:
             engine.update(role, current="-", latest="-", status="QUEUED")
         prior_handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}

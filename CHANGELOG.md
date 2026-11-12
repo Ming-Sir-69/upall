@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.0 — 2026-11-12
+
+- Host config gains `after_update`: a command run after a tool's successful update to re-apply only our modification on top of the new release. Unlike `preserve`, which freezes a whole copy (vendor files included) at the old release, this keeps our change ours and lets everything else follow upstream. Hooked tools count in the 本地修改 column.
+
 ## 0.11.3 — 2026-11-12
 
 - Fix grouped scrolling: the repeated group header at the top of a scrolled list no longer pushes the selected tool off the bottom (the last tool of the last group could not be seen), and the list budget now counts the table header line, so the 空格/1 更新 hint is no longer cut in medium-height panes.

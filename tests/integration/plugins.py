@@ -56,8 +56,9 @@ with tempfile.TemporaryDirectory(prefix="upall-host-") as tmp:
     except hosttools.ConfigError:
         pass
     config.chmod(0o600)
-    tools, preserve = hosttools.load(config)
+    tools, preserve, hooks = hosttools.load(config)
     assert tools["x"].group == "app" and tools["x"].installed and preserve["x"] == [Path.home() / "keep"]
+    assert hooks == {}
 print("PASS: host config needs owner-only file, absolute argv, known groups")
 
 # --- git convergence ----------------------------------------------------------
@@ -173,6 +174,9 @@ elif tool == "adapter" and args == ["check"]:
                       "overlay": {"local": 2, "absorbed": 1, "note": "fixture"}}))
 elif tool == "adapter" and args == ["update"]:
     (root / "adapter.version").write_text("1.1.0")
+elif tool == "adapter" and args == ["reapply"]:
+    assert (root / "adapter.version").read_text() == "1.1.0", "hook ran before the update"
+    (root / "reapplied").write_text("yes")
 else:
     sys.exit("unexpected fixture command: " + tool + " " + " ".join(args))
 '''
@@ -207,7 +211,8 @@ for case, expected in (("ok", "UPDATED"), ("badteam", "UPDATE-FAILED")):
         config = tmp / "tools.json"
         config.write_text(json.dumps({"tools": [{"id": "fork", "label": "Fork", "group": "host",
                                                  "check": [str(bin_dir / "adapter"), "check"],
-                                                 "update": [str(bin_dir / "adapter"), "update"]}]}))
+                                                 "update": [str(bin_dir / "adapter"), "update"]}],
+                                      "after_update": {"fork": [str(bin_dir / "adapter"), "reapply"]}}))
         config.chmod(0o600)
         env = dict(os.environ, PATH=f"{bin_dir}:/usr/bin:/bin", UPALL_SEARCH_PATH=str(bin_dir / "none"),
                    UPALL_APP_DIRS=str(apps), UPALL_CONFIG=str(config), UPALL_LOG_ROOT=str(tmp / "state"),
@@ -224,6 +229,7 @@ for case, expected in (("ok", "UPDATED"), ("badteam", "UPDATE-FAILED")):
         logs = "\n".join(p.read_text() for p in (tmp / "state/latest").glob("*.log"))
         assert jobs["kimi-cu"]["status"] == expected, (jobs, logs)
         assert jobs["fork"]["status"] == "UPDATED", (jobs, logs)
+        assert (tmp / "reapplied").exists(), "after_update hook did not run"
         installed = plistlib.loads((apps / "KimiCU.app/Contents/Info.plist").read_bytes())["CFBundleShortVersionString"]
         assert installed == ("0.7.2" if case == "ok" else "0.6.8"), installed
         if case == "ok":
