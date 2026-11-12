@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.3 — 2026-11-12
+
+- Fix grouped scrolling: the repeated group header at the top of a scrolled list no longer pushes the selected tool off the bottom (the last tool of the last group could not be seen), and the list budget now counts the table header line, so the 空格/1 更新 hint is no longer cut in medium-height panes.
+
 ## 0.11.2 — 2026-11-11
 
 - The 本地修改 column shows 无 when nothing local remains instead of repeating the detail note.

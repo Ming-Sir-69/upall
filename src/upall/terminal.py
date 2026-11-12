@@ -112,6 +112,45 @@ class Terminal:
                     self.offset = 0
                 return
 
+    @staticmethod
+    def window(entries, position, budget, row_height, grouped, jobs):
+        """Pick list lines around the selection so it is always on screen.
+
+        A window that starts mid-group repeats that group's header on top;
+        that line is part of the budget, never taken from the selection.
+        Returns (lines, overflow) where overflow means some entries are hidden.
+        """
+        height = lambda entry: 1 if entry[0] == "group" else row_height
+        if sum(map(height, entries)) <= budget:
+            return list(entries), False
+        budget = max(1, budget - 1)  # room for the "显示 x/y" line
+
+        def cost(first, last):
+            sticky = grouped and entries[first][0] == "job" and first > 0
+            return sum(height(e) for e in entries[first:last]) + (1 if sticky else 0)
+
+        first, last = position, position + 1
+        while True:
+            grow_down = last - position <= position - first
+            moved = False
+            for down in ((True, False) if grow_down else (False, True)):
+                if down and last < len(entries) and cost(first, last + 1) <= budget:
+                    last += 1
+                    moved = True
+                    break
+                if not down and first > 0 and cost(first - 1, last) <= budget:
+                    first -= 1
+                    moved = True
+                    break
+            if not moved:
+                break
+        while last - 1 > position and entries[last - 1][0] == "group":
+            last -= 1  # never end on a header with no rows under it
+        lines = entries[first:last]
+        if grouped and lines[0][0] == "job" and first > 0 and cost(first, last) <= budget:
+            lines = [("group", jobs[lines[0][1]].group), *lines]
+        return lines, True
+
     def paint(self, text, color):
         return f"\033[{color}m{text}\033[0m" if self.color else text
 
@@ -155,9 +194,6 @@ class Terminal:
             content.append((header + "状态", "90"))
         spinner = self.spinners[self.tick % len(self.spinners)]
         row_height = 2 if not wide and rows >= 18 else 1
-        capacity = max(1, (rows - (16 if self.show_logs and rows >= 18 else 12)) // row_height)
-        if rows < 12:
-            capacity = max(1, rows - 6)
         # Group headers sit between rows; the selection only ever lands on tools.
         entries, position = [], 0
         for index, job in enumerate(jobs):
@@ -166,12 +202,11 @@ class Terminal:
             if index == self.selected:
                 position = len(entries)
             entries.append(("job", index))
-        first = max(0, min(position - capacity // 2, len(entries) - capacity))
-        visible = entries[first:first + capacity]
-        if visible and visible[0][0] == "job" and len(groups) > 1:
-            visible = [("group", jobs[visible[0][1]].group), *visible[:-1]] if len(visible) > 1 else visible
-        while len(visible) > 1 and visible[-1][0] == "group":
-            visible.pop()
+        # Exact line budget: everything in the frame that is not the list.
+        logs_on = self.show_logs and rows >= 18
+        fixed = 4 + (1 if wide else 0) + 1 + 1 + (2 if ended else 1) + (4 if logs_on else 0)
+        budget = max(1, rows - 3 - fixed) if rows >= 12 else max(1, rows - 6)
+        visible, overflow = self.window(entries, position, budget, row_height, len(groups) > 1, jobs)
         shown = [jobs[i] for kind, i in visible if kind == "job"]
         for kind, value in visible:
             if kind == "group":
@@ -206,7 +241,7 @@ class Terminal:
                 content.append((f"{prefix} {job.label}  {status} · {int(job.elapsed())}s", color))
                 if rows >= 18:
                     content.append((f"  {job.current} → {job.latest}" + (f" · 本地 {job.overlay}" if job.overlay else ""), "90"))
-        if len(entries) > capacity and rows >= 12:
+        if overflow and rows >= 12:
             content.append((f"显示 {len(shown)}/{len(jobs)} 项 · ↑↓ 浏览", "90"))
         content.append(("", "0"))
         chosen = jobs[self.selected]

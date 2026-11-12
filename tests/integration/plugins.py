@@ -231,3 +231,39 @@ for case, expected in (("ok", "UPDATED"), ("badteam", "UPDATE-FAILED")):
         else:
             assert "签名团队" in logs
 print("PASS: app bundles update only with matching sha256 and signing team, keep a rollback copy; host tools report overlays")
+
+# --- grouped list scrolling keeps the selection and the key hints on screen -------
+from types import SimpleNamespace
+from upall.engine import Engine
+from upall.discovery import Installation
+from upall.terminal import Terminal
+roles = ["claude", "codex", "kimi", "hermes", "kimi-cu", "kimi-webbridge", "iphone-use", "agent-desktop",
+         "mole", "cc-switch", "ccbaga", "claude-switcher"]
+groups = dict(zip(roles, ["cli"] * 4 + ["agent"] * 4 + ["app"] * 2 + ["host"] * 2))
+with tempfile.TemporaryDirectory(prefix="upall-scroll-") as tmp:
+    installs = {r: Installation(r, "/x", "demo", label="T-" + r, group=groups[r]) for r in roles}
+    engine = Engine(SimpleNamespace(check=True, demo=True, inventory=False), roles, Path(tmp), installs)
+    try:
+        for role in roles:
+            engine.update(role, status="CURRENT", current="1.0", latest="1.0")
+        engine.futures = []
+        view = Terminal(engine)
+        view.color, view.logs_touched = False, True
+        for logs in (False, True):
+            view.show_logs = logs
+            for cols in (40, 50, 78, 120):
+                for rows in range(8, 45):
+                    for selected in range(len(roles)):
+                        view.selected = selected
+                        frame = view.frame(cols, rows)
+                        text = "\n".join(frame)
+                        assert "T-" + roles[selected] in text, (logs, cols, rows, selected, text)
+                        assert len(frame) < rows and "退出" in text, (cols, rows, text)
+                        if rows >= 14 and cols >= 50:
+                            assert "空格/1 更新" in text, (logs, cols, rows, selected, text)
+        view.show_logs, view.selected = False, len(roles) - 1
+        text = "\n".join(view.frame(78, 24))
+        assert "── 本机项目" in text and "T-ccbaga" in text and "› T-claude-switcher" in text, text
+    finally:
+        engine.pool.shutdown()
+print("PASS: grouped scrolling keeps the selected tool, its group header and the key hints visible at every size")
