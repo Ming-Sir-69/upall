@@ -102,4 +102,4 @@ Public changelogs describe module behavior. Host-specific deployment history sta
 
 Publish an explicit tracked-file set, not the parent workspace. Review the diff and packaged source distribution for credentials, local paths, symlinks into private trees, runtime reports and copied private documentation. Provide generic examples and keep public assets free of real account or machine data.
 
-Hosted CI/deploy/registry publication is a separate choice. This repository keeps Actions disabled and uses local validation; neither extraction nor integration automatically authorizes paid services or quota-consuming automation.
+Hosted CI/deploy/registry publication is a separate choice. This repository keeps Actions disabled and uses local validation; paid services and quota-consuming automation stay off.
