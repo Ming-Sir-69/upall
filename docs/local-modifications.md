@@ -59,6 +59,14 @@ Some official updaters rewrite files we have customised, such as a slimmed agent
 skill. Paths listed under `preserve.<tool id>` are snapshotted before that tool's
 update and restored afterwards; a path that was a symlink stays a symlink.
 
+## Re-applying a modification (`"after_update"`)
+
+`preserve` keeps a whole copy, which also freezes the vendor's own files at the
+old release. When only part of a copy is ours, prefer an `after_update` command:
+it runs after the tool's update succeeded and re-applies just our change on top
+of the new release, so everything else follows upstream. A failing hook marks
+the update as failed and its log shows why.
+
 ## Example config
 
 ~~~json
@@ -70,7 +78,7 @@ update and restored afterwards; a path that was a symlink stays a symlink.
     {"id": "some-fork", "label": "Some Fork", "group": "host", "kind": "git",
      "repo": "/path/to/checkout", "remote": "origin", "branch": "main"}
   ],
-  "preserve": {"kimi-webbridge": ["~/.codex/skills/kimi-webbridge"]}
+  "after_update": {"kimi-webbridge": ["/usr/bin/python3", "-I", "/path/to/adapters/kimi_webbridge_skill.py"]}
 }
 ~~~
 

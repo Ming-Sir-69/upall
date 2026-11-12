@@ -43,7 +43,7 @@ class ManualError(Exception):
 
 
 class Engine:
-    def __init__(self, args, roles, log_dir, installations=None, preserve=None):
+    def __init__(self, args, roles, log_dir, installations=None, preserve=None, hooks=None):
         self.args, self.log_dir = args, log_dir
         self.mode = "inventory" if getattr(args, "inventory", False) else "check" if args.check else "update"
         self.state_dir = log_dir / "state"
@@ -51,6 +51,7 @@ class Engine:
         self.hermes_root = Path.home() / ".hermes/hermes-agent"
         self.installations = installations or (dict.fromkeys(roles) if args.demo else discover(os.environ.get("UPALL_SEARCH_PATH")))
         self.preserve = preserve or {}
+        self.hooks = hooks or {}
         self.meta = {}
         self.jobs = {}
         for role in roles:
@@ -102,7 +103,7 @@ class Engine:
         return done
 
     def preserve_text(self, role):
-        count = len(self.preserve.get(role, ()))
+        count = len(self.preserve.get(role, ())) + (1 if role in self.hooks else 0)
         return f"保留 {count}" if count else ""
 
     def log(self, role, text):
@@ -329,11 +330,12 @@ class Engine:
         finally:
             try:
                 if records:
-                    kept = overlays.restore(records, lambda text: self.log(role, text))
-                    if kept:
-                        self.update(role, overlay=f"保留 {kept}")
+                    overlays.restore(records, lambda text: self.log(role, text))
             finally:
                 lock.release()
+        if role in self.hooks:
+            # Re-apply our modification on top of the new upstream release.
+            self.command(role, self.hooks[role], timeout=300)
 
     def install_one(self, role):
         found = self.installations[role]
