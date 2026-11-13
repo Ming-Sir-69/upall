@@ -75,7 +75,8 @@ The upcheck command is a compatibility alias for the same check-first flow. Redi
 The known catalog includes Claude Code, Codex, Kimi Code, Hermes, Gemini CLI, Grok Build, OpenCode, OpenClaw, Pi and MiniMax Code (AI 编程工具); KimiCU, Kimi WebBridge, iPhone Use and Agent Desktop (Agent 插件与技能); Mole and CC Switch (效率与维护). Projects you maintain yourself can be added as host-defined tools, and UPALL reports which of your local modifications upstream has already absorbed; see [local modifications](docs/local-modifications.md).
 
 - Missing tools stay missing. This is an updater, not an automatic installer.
-- npm and Homebrew installations use the detected package and manager prefix. A command under a Homebrew bin directory can still belong to npm.
+- npm and Homebrew installations use the detected package and manager prefix. A command under a Homebrew bin directory can still belong to npm. npm operations try direct networking before the inherited proxy environment.
+- Large downloads use aria2c with eight connections when installed, then a clean curl fallback. Native Claude Code updates keep the detected channel and target version, use the vendor's manifest and optional zstd package, and verify checksums before installation.
 - Known native/script installations use the corresponding official updater or installer.
 - Unknown or project-local installations require manual handling.
 - Installation success is followed by a fresh version check.
@@ -85,7 +86,7 @@ See [the support matrix](docs/adapters.md) for adapter boundaries. Tests use fak
 
 ## State and privacy
 
-State defaults to $XDG_STATE_HOME/upall, or ~/.local/state/upall. UPALL uses owner-only directories. Updates/checks use latest/, inventories use inventory/, and demonstrations use demo/latest/. Inventory does not replace the previous update report.
+State defaults to $XDG_STATE_HOME/upall, or ~/.local/state/upall. UPALL uses owner-only directories. Updates/checks use latest/, inventories use inventory/, and demonstrations use demo/latest/. Inventory does not replace the previous update report. Every run is also appended to history.jsonl. Each job's network records include route, downloader, attempt, elapsed time, bytes, throughput and failure reason.
 
 UPALL_LOG_ROOT overrides the state root. UPALL_SEARCH_PATH limits discovery to an explicit search path. NO_COLOR disables color. The tool does not read your API keys, sign-in stores, or conversation history. Reports and logs contain local paths and tool output; redact them before sharing.
 

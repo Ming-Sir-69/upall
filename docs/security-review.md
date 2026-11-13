@@ -48,3 +48,10 @@ The XDG specification requires absolute base-directory values. The previous stat
 - Host config is executable configuration: it must be owned by the user, not group/world-writable, and use absolute program paths; argv is never passed through a shell. Isolated runs ignore the default file. Adapter output is parsed as JSON and sanitized before display.
 - Git convergence backs up refs before moving them, never touches a dirty work tree, aborts a failed rebase and only deletes branches whose every commit upstream already carries (archived under refs/upall/archive/).
 - Preserved paths are copied into the owner-only state root; restore never follows symlinks out of the recorded path.
+
+## 0.13.0 resilient downloads and history
+
+- Download hosts and release targets remain pinned by the existing adapters. Switching between aria2c and curl does not relax URL, bundle-id, version, strict-signature or Developer ID team checks. A failed downloader's partial output is removed before the other downloader starts.
+- Native Claude Code uses the vendor's versioned manifest. The compressed package must match its own sha256 and size; the decompressed binary must independently match the uncompressed manifest before it is made executable or run. Invalid metadata or a checksum mismatch never reaches installation.
+- npm direct/proxy fallback changes only transport environment variables; the detected package, manager, prefix and channel are unchanged. Proxy credentials are not copied into structured network events.
+- Network events are local untrusted diagnostic data, sanitized before display. The append-only history uses an owner-only state directory and no-follow file creation; latest-report replacement remains atomic.
