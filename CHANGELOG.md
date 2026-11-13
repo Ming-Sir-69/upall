@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.0 — 2026-11-14
+
+- Make downloads resilient on routes with slow single connections: aria2c uses eight resumable connections when installed, with a clean curl retry fallback. Native Claude Code updates download the vendor's versioned manifest and binary through the same path, prefer the smaller official zstd package when available, and verify both compressed and uncompressed checksums before installation.
+- npm version checks and installations try a direct connection first, then retry through the inherited proxy environment. Existing package managers, prefixes and release channels are preserved.
+- Record every metadata request, version check, download and npm installation in the tool log and the job's structured `network` report, including route, tool, attempt, elapsed time, bytes, throughput and failure reason. Append each run to `history.jsonl`; `latest/report.json` remains the latest-run view.
+- Verify CC Switch's GitHub-published sha256 digest when the release provides one, in addition to the existing bundle signature and Developer ID team checks.
+
 ## 0.12.0 — 2026-11-12
 
 - Host config gains `after_update`: a command run after a tool's successful update to re-apply only our modification on top of the new release. Unlike `preserve`, which freezes a whole copy (vendor files included) at the old release, this keeps our change ours and lets everything else follow upstream. Hooked tools count in the 本地修改 column.
