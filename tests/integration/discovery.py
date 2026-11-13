@@ -80,10 +80,27 @@ with tempfile.TemporaryDirectory(prefix="upall-discovery-") as tmp:
     wrapper = executable(root / "custom-bin/hermes", f'#!/bin/sh\nexec "{hermes}" "$@"\n')
     assert classify("hermes", wrapper, home).root == str((root / "custom-hermes").resolve())
 
+    native_agent = executable(home / ".local/share/cursor-agent/versions/2026.11.13-eacade1/cursor-agent")
+    agent_link = home / ".local/bin/cursor-agent"
+    agent_link.parent.mkdir(parents=True, exist_ok=True)
+    agent_link.symlink_to(native_agent)
+    short_only = root / "short-bin"
+    short_only.mkdir()
+    (short_only / "agent").symlink_to(native_agent)
+    assert classify("cursor-agent", agent_link, home).source == "native"
+    assert classify("cursor-agent", short_only / "agent", home).source == "native"
+    stray_agent = executable(root / "other/agent")
+    assert not classify("cursor-agent", stray_agent, home).update_supported
+    only_short = discover(search_path=str(short_only), home=home)
+    assert only_short["cursor-agent"].installed and only_short["cursor-agent"].source == "native"
+    # An unrelated `agent` binary must not be claimed as Cursor Agent.
+    alien = discover(search_path=str(root / "other"), home=home)
+    assert not alien["cursor-agent"].installed
+
     inventory = discover(search_path=str(prefix / "bin"), home=home)
     assert inventory["codex"].installed
     assert not inventory["claude"].installed  # Explicit search path does not fall through to another install.
-    assert set(inventory) == set(TOOLS) and len(inventory) == 16
+    assert set(inventory) == set(TOOLS) and len(inventory) == 17
     empty = discover(search_path=str(root / "empty"), home=home)
     assert all(not item.installed for item in empty.values())
 print("PASS: npm/native/brew/local/unknown identities, stable channel, legacy namespace, bounded detection")
@@ -95,7 +112,7 @@ with tempfile.TemporaryDirectory(prefix="upall-empty-") as tmp:
                             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=5)
     assert result.returncode == 0, result.stderr
     report = json.loads(result.stdout)
-    assert len(report["jobs"]) == 16
+    assert len(report["jobs"]) == 17
     assert all(job["status"] == "SKIPPED" for job in report["jobs"])
     assert not (Path(tmp) / "latest/report.json").exists(), "inventory replaced the last update report"
     result = subprocess.run([sys.executable, str(script), "--json"], env=env,

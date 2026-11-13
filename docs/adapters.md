@@ -14,6 +14,7 @@ Discovery checks PATH and bounded common installation directories, plus explicit
 | OpenClaw | Matching npm/Homebrew provenance; uses its own dry-run/update protocol |
 | Pi | Known npm package namespace or known Homebrew formula |
 | MiniMax Code | Matching npm package or known official installer root |
+| Cursor Agent | Official native layout under ~/.local/share/cursor-agent/versions/; short name `agent` only when it resolves into that tree |
 | KimiCU | App bundle KimiCU.app (bundle id ai.kimi.cu) in /Applications or ~/Applications |
 | Kimi WebBridge | ~/.kimi-webbridge/bin/kimi-webbridge (official daemon layout) |
 | iPhone Use | iphone-use inside iPhoneUse.app, or a PATH link to it |
@@ -35,6 +36,7 @@ Unknown provenance and project-local dependencies are manual. A discovered execu
 - OpenClaw: invoke update --dry-run --json to find its target and update --yes to apply.
 - OpenCode native: invoke upgrade --method curl.
 - Grok native: invoke update.
+- Cursor Agent native: invoke `about --format json` for `cliVersion` / `latestVersion`, then `update`.
 - KimiCU: read https://cdn.kimi.com/kimi-computer-use/latest/version.json; during an update download that package only from cdn.kimi.com, require its sha256, a strict code signature and the same Developer ID team as both the manifest and the installed copy, swap the bundle (previous copy kept under the state root's backups/), then restart its launchd service.
 - CC Switch: read the GitHub latest release of farion1231/cc-switch; download its -macOS.zip from github.com, verify its published sha256 when present, require a strict signature from the installed copy's team, quit the running app politely, swap the bundle and reopen it in the background.
 - Kimi WebBridge: read `kimi-webbridge status` (daemon version, update_available, version_mismatch pairing with the browser extension) and run `kimi-webbridge upgrade`; skill copies that were symlinks are restored as symlinks afterwards.

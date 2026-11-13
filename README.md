@@ -72,7 +72,7 @@ The upcheck command is a compatibility alias for the same check-first flow. Redi
 
 ## Detection and updates
 
-The known catalog includes Claude Code, Codex, Kimi Code, Hermes, Gemini CLI, Grok Build, OpenCode, OpenClaw, Pi and MiniMax Code (AI 编程工具); KimiCU, Kimi WebBridge, iPhone Use and Agent Desktop (Agent 插件与技能); Mole and CC Switch (效率与维护). Projects you maintain yourself can be added as host-defined tools, and UPALL reports which of your local modifications upstream has already absorbed; see [local modifications](docs/local-modifications.md).
+The known catalog includes Claude Code, Codex, Kimi Code, Hermes, Gemini CLI, Grok Build, OpenCode, OpenClaw, Pi, MiniMax Code and Cursor Agent (AI 编程工具); KimiCU, Kimi WebBridge, iPhone Use and Agent Desktop (Agent 插件与技能); Mole and CC Switch (效率与维护). Projects you maintain yourself can be added as host-defined tools, and UPALL reports which of your local modifications upstream has already absorbed; see [local modifications](docs/local-modifications.md).
 
 - Missing tools stay missing. This is an updater, not an automatic installer.
 - npm and Homebrew installations use the detected package and manager prefix. A command under a Homebrew bin directory can still belong to npm. npm operations try direct networking before the inherited proxy environment.
