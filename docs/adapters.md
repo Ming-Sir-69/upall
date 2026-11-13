@@ -27,16 +27,16 @@ Unknown provenance and project-local dependencies are manual. A discovered execu
 
 ## Network and execution
 
-- Global npm: query package metadata using npm view; update the same package with the same npm prefix.
+- Global npm: query package metadata using npm view; update the same package with the same npm prefix. Try direct networking first, then the inherited proxy environment.
 - Homebrew: query brew info; update the detected formula/cask only.
-- Claude native: query the appropriate npm distribution channel; run the detected claude update. Stable/latest settings are read without exporting provider configuration.
+- Claude native: query the appropriate npm distribution channel, then download the exact target from the vendor's versioned manifest. Use aria2c's eight connections when available, prefer the official zstd package when zstd is installed, verify both compressed and uncompressed sha256/size, and run the verified binary's install command for the same target version. Stable/latest settings are read without exporting provider configuration.
 - Kimi script: query https://code.kimi.com/kimi-code/latest and download the official installer from https://code.kimi.com/kimi-code/install.sh only during an update.
 - Hermes source: invoke its own source-check module and update --yes, preserving its configured channel.
 - OpenClaw: invoke update --dry-run --json to find its target and update --yes to apply.
 - OpenCode native: invoke upgrade --method curl.
 - Grok native: invoke update.
 - KimiCU: read https://cdn.kimi.com/kimi-computer-use/latest/version.json; during an update download that package only from cdn.kimi.com, require its sha256, a strict code signature and the same Developer ID team as both the manifest and the installed copy, swap the bundle (previous copy kept under the state root's backups/), then restart its launchd service.
-- CC Switch: read the GitHub latest release of farion1231/cc-switch; download its -macOS.zip from github.com, require a strict signature from the installed copy's team, quit the running app politely, swap the bundle and reopen it in the background.
+- CC Switch: read the GitHub latest release of farion1231/cc-switch; download its -macOS.zip from github.com, verify its published sha256 when present, require a strict signature from the installed copy's team, quit the running app politely, swap the bundle and reopen it in the background.
 - Kimi WebBridge: read `kimi-webbridge status` (daemon version, update_available, version_mismatch pairing with the browser extension) and run `kimi-webbridge upgrade`; skill copies that were symlinks are restored as symlinks afterwards.
 - iPhone Use: `iphone-use upgrade --json` to check and `iphone-use upgrade` to apply.
 - Mole: newest V<x.y.z> GitHub release of tw93/Mole (prereleases and platform tags ignored); `mo update` for script installs, brew upgrade for Homebrew.

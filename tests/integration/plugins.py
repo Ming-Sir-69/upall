@@ -153,7 +153,10 @@ root = Path(os.environ["UPALL_FIXTURE_ROOT"])
 tool, args = Path(sys.argv[0]).name, sys.argv[1:]
 with (root / "calls").open("a") as log:
     log.write(tool + " " + " ".join(args) + "\n")
-if tool == "curl" and args[-1].endswith("/latest/version.json"):
+if tool == "aria2c":
+    target = Path(args[args.index("--dir") + 1]) / args[args.index("--out") + 1]
+    shutil.copyfile(root / "package.zip", target)
+elif tool == "curl" and args[-1].endswith("/latest/version.json"):
     print(json.dumps({"version": "0.7.2", "app": {"url": "https://cdn.kimi.com/kimi-computer-use/0.7.2/KimiCU.app.zip",
           "sha256": (root / "sha").read_text().strip(), "team_id": "TEAM000001"},
           "app_x86_64": {"url": "https://cdn.kimi.com/kimi-computer-use/0.7.2/KimiCU-x86_64.app.zip",
@@ -197,7 +200,7 @@ for case, expected in (("ok", "UPDATED"), ("badteam", "UPDATE-FAILED")):
         stub = bin_dir / "fixture"
         stub.write_text(f"#!{sys.executable}\n" + STUB)
         stub.chmod(0o755)
-        for name in ("curl", "codesign", "launchctl", "adapter"):
+        for name in ("aria2c", "curl", "codesign", "launchctl", "adapter"):
             (bin_dir / name).symlink_to(stub)
         apps = tmp / "Apps"
         bundle(apps / "KimiCU.app", "0.6.8")
@@ -227,6 +230,7 @@ for case, expected in (("ok", "UPDATED"), ("badteam", "UPDATE-FAILED")):
                                 stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
         jobs = {j["role"]: j for j in json.loads(result.stdout)["jobs"]}
         logs = "\n".join(p.read_text() for p in (tmp / "state/latest").glob("*.log"))
+        assert "网络记录：download" in logs and "aria2c" in logs and "MiB/s" in logs, logs
         assert jobs["kimi-cu"]["status"] == expected, (jobs, logs)
         assert jobs["fork"]["status"] == "UPDATED", (jobs, logs)
         assert (tmp / "reapplied").exists(), "after_update hook did not run"
