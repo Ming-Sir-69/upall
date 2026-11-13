@@ -163,6 +163,13 @@ elif tool == "curl" and args[-1].endswith("/latest/version.json"):
           "sha256": (root / "sha").read_text().strip(), "team_id": "TEAM000001"}}))
 elif tool == "curl" and "-o" in args:
     shutil.copyfile(root / "package.zip", args[args.index("-o") + 1])
+elif tool == "ditto" and args[:2] == ["-x", "-k"]:
+    shutil.unpack_archive(args[2], args[3], "zip")
+elif tool == "ditto" and len(args) == 2:
+    destination = Path(args[1])
+    if destination.exists():
+        shutil.rmtree(destination)
+    shutil.copytree(args[0], destination)
 elif tool == "codesign" and args[0] == "-d":
     team = "TEAM999999" if os.environ.get("UPALL_FIXTURE_CASE") == "badteam" and "package" in args[-1] else "TEAM000001"
     print("Identifier=ai.kimi.cu\nTeamIdentifier=" + team, file=sys.stderr)
@@ -200,7 +207,7 @@ for case, expected in (("ok", "UPDATED"), ("badteam", "UPDATE-FAILED")):
         stub = bin_dir / "fixture"
         stub.write_text(f"#!{sys.executable}\n" + STUB)
         stub.chmod(0o755)
-        for name in ("aria2c", "curl", "codesign", "launchctl", "adapter"):
+        for name in ("aria2c", "curl", "ditto", "codesign", "launchctl", "adapter"):
             (bin_dir / name).symlink_to(stub)
         apps = tmp / "Apps"
         bundle(apps / "KimiCU.app", "0.6.8")

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.0 — 2026-11-13
+
+- Add Cursor Agent to AI 编程工具: discover the official `~/.local/share/cursor-agent/versions/` layout (and the short `agent` name only when it resolves into that tree), check with `cursor-agent about --format json` (`cliVersion` / `latestVersion`), and update with the vendor's `cursor-agent update`.
+
 ## 0.13.0 — 2026-11-14
 
 - Make downloads resilient on routes with slow single connections: aria2c uses eight resumable connections when installed, with a clean curl retry fallback. Native Claude Code updates download the vendor's versioned manifest and binary through the same path, prefer the smaller official zstd package when available, and verify both compressed and uncompressed checksums before installation.

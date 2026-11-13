@@ -10,7 +10,7 @@ import shutil
 TOOLS = {
     "claude": "Claude Code", "codex": "Codex", "kimi": "Kimi Code", "hermes": "Hermes",
     "gemini": "Gemini CLI", "grok": "Grok Build", "opencode": "OpenCode",
-    "openclaw": "OpenClaw", "pi": "Pi", "mcode": "MiniMax Code",
+    "openclaw": "OpenClaw", "pi": "Pi", "mcode": "MiniMax Code", "cursor-agent": "Cursor Agent",
     "kimi-cu": "KimiCU", "kimi-webbridge": "Kimi WebBridge", "iphone-use": "iPhone Use",
     "agent-desktop": "Agent Desktop", "mole": "Mole", "cc-switch": "CC Switch",
 }
@@ -145,6 +145,8 @@ def classify(role, executable, home=None):
         result.source, result.update_supported, result.reason = "native", True, ""
     elif role == "codex" and "/.codex/" in target.as_posix():
         result.source, result.update_supported, result.reason = "native", True, ""
+    elif role == "cursor-agent" and ".local/share/cursor-agent/versions/" in target.as_posix():
+        result.source, result.update_supported, result.reason = "native", True, ""
     elif role == "kimi" and "/.kimi-code/" in target.as_posix():
         result.source, result.update_supported, result.reason = "script", True, ""
     elif role == "hermes":
@@ -235,6 +237,12 @@ def discover(search_path=None, home=None):
         path = shutil.which(role, path=search_path)
         if not path and role == "mole":
             path = shutil.which("mo", path=search_path)
+        if not path and role == "cursor-agent":
+            # Official installers also expose a short `agent` name; only accept it
+            # when it resolves into the Cursor Agent versions tree.
+            alt = shutil.which("agent", path=search_path)
+            if alt and ".local/share/cursor-agent/versions/" in Path(alt).resolve().as_posix():
+                path = alt
         found[role] = classify(role, path, home) if path else Installation(role)
     return found
 
