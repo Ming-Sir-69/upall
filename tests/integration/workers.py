@@ -12,7 +12,7 @@ import time
 SCRIPT = Path(__file__).resolve().parents[2] / "tools/upall"
 PYTHON = Path(sys.executable)
 STUB = r'''
-import json, os, sys, time
+import hashlib, json, os, shutil, sys, time
 from pathlib import Path
 root = Path(os.environ["UPALL_FIXTURE_ROOT"])
 case = os.environ["UPALL_FIXTURE_CASE"]
@@ -31,6 +31,8 @@ def updated(role):
 if tool == "claude" and args == ["--version"]:
     print(current("claude") + " (Claude Code)")
 elif tool == "claude" and args == ["update"]:
+    updated("claude")
+elif tool == "claude" and args == ["install", "1.0.1"]:
     updated("claude")
 elif tool == "codex" and args == ["--version"]:
     print("codex-cli " + current("codex"))
@@ -61,6 +63,12 @@ elif tool == "npm" and args[:3] == ["install", "--global", "--prefix"]:
         packages={"@openai/codex":"codex", "@google/gemini-cli":"gemini", "@xai-official/grok":"grok",
                   "opencode-ai":"opencode", "@earendil-works/pi-coding-agent":"pi", "@minimax-ai/code":"mcode"}
         updated(next(role for package,role in packages.items() if args[4].startswith(package+"@")))
+elif tool == "curl" and any("downloads.claude.ai/claude-code-releases/1.0.1/manifest.json" in arg for arg in args):
+    payload = (root / "claude-source").read_bytes()
+    print(json.dumps({"platforms": {platform: {"binary": "claude", "size": len(payload),
+          "checksum": hashlib.sha256(payload).hexdigest()} for platform in ("darwin-arm64", "darwin-x64")}}))
+elif tool == "curl" and any("downloads.claude.ai/claude-code-releases/1.0.1/" in arg for arg in args) and "-o" in args:
+    shutil.copyfile(root / "claude-source", args[args.index("-o") + 1])
 elif tool == "curl" and args[-1] == "https://code.kimi.com/kimi-code/latest":
     print("1.0.1")
 elif tool == "curl" and "https://code.kimi.com/kimi-code/install.sh" in args:
@@ -118,6 +126,7 @@ def run_case(case, expected, exit_code, args=(), include_claude=False, include_n
             claude.parent.mkdir(parents=True)
             claude.write_text(f"#!{sys.executable}\n" + STUB)
             claude.chmod(0o755)
+            (root / "claude-source").write_bytes(claude.read_bytes())
             (bin_dir / "claude").symlink_to(claude)
         if include_npm_tools:
             for role,name in {"gemini":"@google/gemini-cli", "grok":"@xai-official/grok", "opencode":"opencode-ai",

@@ -1,5 +1,5 @@
 """Task state snapshots."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import time
 
 
@@ -20,6 +20,7 @@ class Job:
     update_supported: bool = False
     group: str = "cli"
     overlay: str = ""
+    network: list[dict] = field(default_factory=list)
 
     def elapsed(self):
         return max(0, (self.ended or time.monotonic()) - self.started) if self.started else 0

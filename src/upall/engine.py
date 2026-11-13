@@ -110,6 +110,110 @@ class Engine:
         with (self.log_dir / f"{role}.log").open("a") as log:
             log.write(clean(text) + "\n")
 
+    def record_network(self, role, operation, tool, route, attempt, started, elapsed, *,
+                       size=None, error=""):
+        event = {"operation": operation, "tool": tool, "route": route, "attempt": attempt,
+                 "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(started)),
+                 "elapsed": round(elapsed, 2), "status": "failed" if error else "success"}
+        if size is not None:
+            event["bytes"] = size
+            event["bytes_per_second"] = round(size / elapsed) if elapsed > 0 else 0
+        if error:
+            event["error"] = clean(str(error))[:300]
+        with self.guard:
+            self.jobs[role].network.append(event)
+        route_label = "直连" if route == "direct" else "继承环境代理"
+        detail = (f"网络记录：{operation} · 第 {attempt} 次 · {route_label} · {tool} · "
+                  f"{'失败' if error else '成功'} · {elapsed:.2f}s")
+        if size is not None:
+            detail += f" · {size} B"
+            if elapsed > 0:
+                detail += f" · {size / elapsed / 1048576:.2f} MiB/s"
+        if error:
+            detail += f" · {error}"
+        self.log(role, detail)
+
+    def network_env(self, direct, extra=None):
+        env = dict(os.environ)
+        if direct:
+            for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy",
+                        "npm_config_proxy", "npm_config_https_proxy", "NODE_USE_ENV_PROXY"):
+                env.pop(key, None)
+        env.update(extra or {})
+        return env
+
+    def network_command(self, role, command, operation, route, attempt, *,
+                        capture=False, timeout=30, env=None, artifact=None):
+        started_wall, started = time.time(), time.monotonic()
+        try:
+            result = self.command(role, command, capture=capture, timeout=timeout, env=env)
+            size = artifact.stat().st_size if artifact else len(result.encode()) if capture else None
+            if artifact and size <= 0:
+                raise CommandError("下载文件为空")
+        except Exception as error:
+            self.record_network(role, operation, Path(command[0]).name, route, attempt, started_wall,
+                                time.monotonic() - started, error=error)
+            raise
+        self.record_network(role, operation, Path(command[0]).name, route, attempt, started_wall,
+                            time.monotonic() - started, size=size)
+        return result
+
+    def npm_command(self, role, command, operation, *, capture=False, timeout=30, extra_env=None):
+        for attempt, direct in enumerate((True, False), 1):
+            route = "direct" if direct else "inherited"
+            env = self.network_env(direct, dict(extra_env or {}, npm_config_fetch_retries="0",
+                                                npm_config_fetch_timeout="15000"))
+            try:
+                return self.network_command(role, command, operation, route, attempt, capture=capture,
+                                            timeout=min(timeout, 180) if direct else timeout, env=env)
+            except CommandError:
+                if self.stop.is_set() or not direct:
+                    raise
+                self.log(role, "直连失败；本次操作改用继承环境代理")
+        raise AssertionError("unreachable")
+
+    def download_file(self, role, url, archive, *, sha256="", size=0):
+        aria2 = shutil.which("aria2c")
+        commands = []
+        if aria2:
+            commands.append([aria2, "-x8", "-s8", "-k1M", "--file-allocation=none",
+                             "--max-tries=3", "--retry-wait=2", "--connect-timeout=20",
+                             "--show-console-readout=false", "--summary-interval=5",
+                             "--dir", str(archive.parent), "--out", archive.name, url])
+        commands.append(["curl", "-fsSL", "--retry", "3", "--retry-delay", "2", "--retry-all-errors",
+                         "-C", "-", "--connect-timeout", "20", "--max-time", "1500", url,
+                         "-o", str(archive)])
+        for attempt, command in enumerate(commands, 1):
+            if attempt > 1:
+                self.log(role, f"多连接下载失败；删除不完整文件并回退 {Path(command[0]).name}")
+                archive.unlink(missing_ok=True)
+                Path(str(archive) + ".aria2").unlink(missing_ok=True)
+            try:
+                self.network_command(role, command, "download", "inherited", attempt,
+                                     timeout=1800 if aria2 and attempt == 1 else 1600, artifact=archive)
+            except CommandError:
+                if self.stop.is_set() or attempt == len(commands):
+                    raise
+            else:
+                self.verify_download(role, archive, sha256=sha256, size=size)
+                return
+        raise AssertionError("unreachable")
+
+    def verify_download(self, role, archive, *, sha256="", size=0):
+        actual_size = archive.stat().st_size
+        if size and actual_size != size:
+            raise CommandError(f"下载文件大小不符：{actual_size} != {size}")
+        if sha256:
+            digest = hashlib.sha256()
+            with archive.open("rb") as file:
+                for chunk in iter(lambda: file.read(1 << 20), b""):
+                    digest.update(chunk)
+            if digest.hexdigest() != sha256:
+                raise CommandError("下载文件 sha256 校验失败")
+            self.log(role, "校验：官方 sha256 通过")
+        if size:
+            self.log(role, f"校验：文件大小 {actual_size} B 通过")
+
     def command(self, role, command, *, capture=False, timeout=30, env=None, code=False, merge=False, cwd=None):
         """Run argv; capture returns stdout, code returns the exit status instead of raising."""
         if self.stop.is_set():
@@ -154,9 +258,10 @@ class Engine:
         return run
 
     def fetch_json(self, role, url, timeout=20):
-        output = self.command(role, ["curl", "-fsSL", "--connect-timeout", "8", "--max-time", str(timeout),
-                                     "-H", "Accept: application/vnd.github+json", "-H", "User-Agent: upall", url],
-                              capture=True, timeout=timeout + 5)
+        output = self.network_command(role, ["curl", "-fsSL", "--connect-timeout", "8", "--max-time", str(timeout),
+                                             "-H", "Accept: application/vnd.github+json",
+                                             "-H", "User-Agent: upall", url],
+                                      "metadata", "inherited", 1, capture=True, timeout=timeout + 5)
         try:
             return json.loads(output)
         except ValueError:
@@ -248,12 +353,16 @@ class Engine:
         if role == "cc-switch":
             data = self.fetch_json(role, f"https://api.github.com/repos/{GITHUB_LATEST[role]}/releases/latest")
             version = str(data.get("tag_name", "")).removeprefix("v")
-            url = next((str(a.get("browser_download_url", "")) for a in data.get("assets", [])
-                        if str(a.get("name", "")).endswith("-macOS.zip")), "")
+            asset = next((a for a in data.get("assets", [])
+                          if str(a.get("name", "")).endswith("-macOS.zip")), {})
+            url = str(asset.get("browser_download_url", ""))
+            digest = str(asset.get("digest", ""))
+            sha256 = digest.removeprefix("sha256:") if digest.startswith("sha256:") else ""
             parsed = urllib.parse.urlparse(url)
-            if not VERSION.fullmatch(version) or parsed.scheme != "https" or parsed.hostname != "github.com":
+            if not VERSION.fullmatch(version) or parsed.scheme != "https" or parsed.hostname != "github.com" or \
+                    digest and not re.fullmatch(r"[0-9a-f]{64}", sha256):
                 raise CommandError("CC Switch 发布信息无效")
-            self.meta[role] = {"url": url}
+            self.meta[role] = {"url": url, "sha256": sha256}
             return version
         if role == "mole" and found.source != "brew":
             for release in self.fetch_json(role, f"https://api.github.com/repos/{GITHUB_LATEST[role]}/releases?per_page=15"):
@@ -303,8 +412,7 @@ class Engine:
             package += "@" + found.channel
         command = (["curl", "-fsSL", "--connect-timeout", "6", "--max-time", "20", "https://code.kimi.com/kimi-code/latest"]
                    if role == "kimi" else [found.manager or "npm", "view", package, "version", "--silent"])
-        env = dict(os.environ, npm_config_fetch_retries="0", npm_config_fetch_timeout="15000")
-        output = self.command(role, command, capture=True, env=env)
+        output = self.npm_command(role, command, "version-check", capture=True)
         if not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][\w.-]+)?", output):
             raise CommandError("未读到有效的最新版本")
         return output
@@ -375,8 +483,8 @@ class Engine:
                 command += ["--ignore-scripts=false", "--include=optional", "--allow-scripts=" +
                             {"claude": "@anthropic-ai/claude-code", "mcode": "@minimax-ai/code,better-sqlite3",
                              "agent-desktop": "agent-desktop"}[role]]
-            self.command(role, command, timeout=1200,
-                         env=dict(os.environ, PATH=str(Path(found.manager).parent) + os.pathsep + os.environ.get("PATH", "")))
+            self.npm_command(role, command, "install", timeout=1200,
+                             extra_env={"PATH": str(Path(found.manager).parent) + os.pathsep + os.environ.get("PATH", "")})
             return
         if role == "kimi":
             installer = self.log_dir / "kimi-install.sh"
@@ -390,9 +498,56 @@ class Engine:
                                "https://filecdn.minimax.chat/public/install.sh", "-o", str(installer)], timeout=65)
             self.command(role, ["bash", str(installer)], timeout=1200,
                          env=dict(os.environ, MCODE_INSTALL_DIR=found.root, MCODE_NO_MODIFY_PATH="1"))
+        elif role == "claude" and found.source == "native":
+            self.install_claude_native(role)
         else:
             arguments = ["upgrade", "--method", "curl"] if role == "opencode" else ["update"]
             self.command(role, [found.path, *arguments, *(["--yes"] if role == "hermes" else [])], timeout=1200)
+
+    def install_claude_native(self, role):
+        version = self.jobs[role].latest
+        machine = platform.machine()
+        target = {"arm64": "darwin-arm64", "aarch64": "darwin-arm64",
+                  "x86_64": "darwin-x64", "amd64": "darwin-x64"}.get(machine)
+        if not target:
+            raise CommandError(f"Claude Code 暂不支持此架构：{machine}")
+        base = f"https://downloads.claude.ai/claude-code-releases/{version}"
+        manifest = self.fetch_json(role, base + "/manifest.json")
+        try:
+            item = manifest["platforms"][target]
+            expected_size = int(item["size"])
+            expected_hash = str(item["checksum"])
+        except (KeyError, TypeError, ValueError):
+            raise CommandError("Claude Code 官方清单缺少当前平台") from None
+        if item.get("binary") != "claude" or expected_size <= 0 or not re.fullmatch(r"[0-9a-f]{64}", expected_hash):
+            raise CommandError("Claude Code 官方清单无效")
+        work = self.log_dir / "claude-package"
+        shutil.rmtree(work, ignore_errors=True)
+        work.mkdir(mode=0o700)
+        binary = work / "claude"
+        zstd = shutil.which("zstd")
+        compressed = False
+        if zstd:
+            try:
+                zmanifest = self.fetch_json(role, base + "/manifest.zst.json")
+                zitem = zmanifest["platforms"][target]
+                zsize, zhash = int(zitem["size"]), str(zitem["checksum"])
+                if zitem.get("binary") != "claude.zst" or zsize <= 0 or not re.fullmatch(r"[0-9a-f]{64}", zhash):
+                    raise ValueError("invalid compressed manifest")
+                archive = work / "claude.zst"
+                self.download_file(role, base + f"/{target}/claude.zst", archive, sha256=zhash, size=zsize)
+                compressed = True
+            except (CommandError, KeyError, TypeError, ValueError) as error:
+                self.log(role, f"压缩包不可用；回退官方完整程序：{error}")
+        if compressed:
+            self.command(role, [zstd, "-d", "-q", "-f", str(archive), "-o", str(binary)], timeout=300)
+        else:
+            self.download_file(role, base + f"/{target}/claude", binary,
+                               sha256=expected_hash, size=expected_size)
+        self.verify_download(role, binary, sha256=expected_hash, size=expected_size)
+        binary.chmod(0o700)
+        self.command(role, [str(binary), "install", version], timeout=300)
+        shutil.rmtree(work, ignore_errors=True)
 
     def team(self, role, bundle):
         output = self.command(role, ["codesign", "-d", "--verbose=2", str(bundle)], capture=True, merge=True)
@@ -417,15 +572,7 @@ class Engine:
         shutil.rmtree(work, ignore_errors=True)
         work.mkdir(mode=0o700)
         archive = work / "package.zip"
-        self.command(role, ["curl", "-fsSL", "--retry", "3", "--retry-delay", "2", "--connect-timeout", "20",
-                            "--max-time", "1500", meta["url"], "-o", str(archive)], timeout=1600)
-        if meta.get("sha256"):
-            digest = hashlib.sha256()
-            with archive.open("rb") as file:
-                for chunk in iter(lambda: file.read(1 << 20), b""):
-                    digest.update(chunk)
-            if digest.hexdigest() != meta["sha256"]:
-                raise CommandError("更新包 sha256 校验失败")
+        self.download_file(role, meta["url"], archive, sha256=meta.get("sha256", ""))
         self.command(role, ["ditto", "-x", "-k", str(archive), str(work / "x")], timeout=300)
         apps = [p for p in (work / "x").glob("*.app") if app_info(p).get("id") == bundle_id]
         if len(apps) != 1:
@@ -581,4 +728,9 @@ class Engine:
                 "jobs": [dict(asdict(job), elapsed=round(job.elapsed(), 2)) for job in self.snapshot()]}
 
     def save(self):
-        atomic(self.log_dir / "report.json", json.dumps(self.report(), ensure_ascii=False, indent=2) + "\n")
+        report = self.report()
+        atomic(self.log_dir / "report.json", json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+        history = self.log_dir.parent / "history.jsonl"
+        descriptor = os.open(history, os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        with os.fdopen(descriptor, "a", encoding="utf-8") as log:
+            log.write(json.dumps(report, ensure_ascii=False) + "\n")
