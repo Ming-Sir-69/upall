@@ -305,6 +305,13 @@ class Engine:
             data = self.webbridge_status(role)
             self.meta[role] = data
             return str(data.get("version", "")).removeprefix("v") or "-"
+        if role == "cursor-agent":
+            data = self.tool_json(role, [found.path, "about", "--format", "json"], timeout=45)
+            self.meta[role] = data
+            version = str(data.get("cliVersion", ""))
+            if not VERSION.fullmatch(version):
+                raise CommandError("未读到有效的当前版本")
+            return version
         if role == "hermes":
             result = self.command(role, ["git", "-C", str(self.hermes_root), "rev-parse", "--short=8", "HEAD"], capture=True)
             if not re.fullmatch(r"[0-9a-f]{8,40}", result):
@@ -381,6 +388,12 @@ class Engine:
         if role == "iphone-use":
             data = self.tool_json(role, [found.path, "upgrade", "--json"], timeout=45)
             version = str(data.get("latest", ""))
+            if not VERSION.fullmatch(version):
+                raise CommandError("未读到有效的最新版本")
+            return version
+        if role == "cursor-agent":
+            data = self.meta.get(role) or {}
+            version = str(data.get("latestVersion", ""))
             if not VERSION.fullmatch(version):
                 raise CommandError("未读到有效的最新版本")
             return version

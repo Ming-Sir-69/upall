@@ -43,6 +43,11 @@ elif tool == "kimi" and args == ["--version"]:
     print(current("kimi"))
 elif tool in ("gemini", "grok", "opencode", "openclaw", "pi", "mcode") and args == ["--version"]:
     print(current(tool))
+elif tool == "cursor-agent" and args == ["about", "--format", "json"]:
+    version = current("cursor-agent")
+    print(json.dumps({"cliVersion": version, "latestVersion": "1.0.1", "latestStatus": "up_to_date"}))
+elif tool == "cursor-agent" and args == ["update"]:
+    updated("cursor-agent")
 elif tool == "openclaw" and args == ["update", "--dry-run", "--json"]:
     print(json.dumps({"currentVersion":current(tool),"targetVersion":"1.0.1"}))
 elif tool == "openclaw" and args == ["update", "--yes"]:
@@ -86,7 +91,8 @@ else:
 '''
 
 
-def run_case(case, expected, exit_code, args=(), include_claude=False, include_npm_tools=False):
+def run_case(case, expected, exit_code, args=(), include_claude=False, include_npm_tools=False,
+             include_cursor_agent=False):
     with tempfile.TemporaryDirectory(prefix="upall-workers-") as tmp:
         root = Path(tmp)
         bin_dir = root / "bin"
@@ -128,6 +134,12 @@ def run_case(case, expected, exit_code, args=(), include_claude=False, include_n
             claude.chmod(0o755)
             (root / "claude-source").write_bytes(claude.read_bytes())
             (bin_dir / "claude").symlink_to(claude)
+        if include_cursor_agent:
+            agent = root / ".local/share/cursor-agent/versions/1.0.1/cursor-agent"
+            agent.parent.mkdir(parents=True)
+            agent.write_text(f"#!{sys.executable}\n" + STUB)
+            agent.chmod(0o755)
+            (bin_dir / "cursor-agent").symlink_to(agent)
         if include_npm_tools:
             for role,name in {"gemini":"@google/gemini-cli", "grok":"@xai-official/grok", "opencode":"opencode-ai",
                               "openclaw":"openclaw", "pi":"@earendil-works/pi-coding-agent", "mcode":"@minimax-ai/code"}.items():
@@ -206,6 +218,9 @@ run_case("update", {"codex": "UPDATED"}, 0, ("codex", "--json", "--update"))
 run_case("hang", {"codex": "CANCELLED"}, 130, ("codex",))
 run_case("current", {"claude":"CURRENT", **current}, 0, include_claude=True)
 run_case("update", {"claude":"UPDATED", **dict.fromkeys(current,"UPDATED")}, 0, ("--update",), include_claude=True)
-run_case("update", {"claude":"UPDATED", **dict.fromkeys(current,"UPDATED"),
+run_case("current", {"cursor-agent":"CURRENT", **current}, 0, include_cursor_agent=True)
+run_case("update", {"cursor-agent":"UPDATED", **dict.fromkeys(current,"UPDATED")}, 0, ("--update",),
+         include_cursor_agent=True)
+run_case("update", {"claude":"UPDATED", "cursor-agent":"UPDATED", **dict.fromkeys(current,"UPDATED"),
          **dict.fromkeys(("gemini","grok","opencode","openclaw","pi","mcode"),"UPDATED")}, 0, ("--update",),
-         include_claude=True, include_npm_tools=True)
+         include_claude=True, include_npm_tools=True, include_cursor_agent=True)

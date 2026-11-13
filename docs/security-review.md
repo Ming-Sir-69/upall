@@ -55,3 +55,9 @@ The XDG specification requires absolute base-directory values. The previous stat
 - Native Claude Code uses the vendor's versioned manifest. The compressed package must match its own sha256 and size; the decompressed binary must independently match the uncompressed manifest before it is made executable or run. Invalid metadata or a checksum mismatch never reaches installation.
 - npm direct/proxy fallback changes only transport environment variables; the detected package, manager, prefix and channel are unchanged. Proxy credentials are not copied into structured network events.
 - Network events are local untrusted diagnostic data, sanitized before display. The append-only history uses an owner-only state directory and no-follow file creation; latest-report replacement remains atomic.
+
+## 0.14.0 Cursor Agent
+
+- Discovery only accepts the official `~/.local/share/cursor-agent/versions/` tree. The short `agent` name is used only when it resolves into that tree; an unrelated `agent` binary stays missing.
+- Version probes use the vendor's `about --format json`; only `cliVersion` / `latestVersion` drive status. Vendor JSON (and any account fields it may contain) is treated as untrusted log/metadata, same as other adapter output.
+- Updates invoke only the detected executable's `update` command; missing installs stay missing.
