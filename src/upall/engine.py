@@ -397,6 +397,27 @@ class Engine:
             if not VERSION.fullmatch(version):
                 raise CommandError("未读到有效的最新版本")
             return version
+        if role == "kimi" and found.source == "script":
+            # The native /latest marker can lag published releases. Read the
+            # official npm channel without requiring npm, then ensure the same
+            # release has a native package for this installation's platform.
+            data = self.fetch_json(role, "https://registry.npmjs.org/@moonshot-ai/kimi-code/latest")
+            version = data.get("version") if isinstance(data, dict) else None
+            if not isinstance(version, str) or not VERSION.fullmatch(version):
+                raise CommandError("Kimi 发布信息未返回有效版本")
+            system = {"Darwin": "darwin", "Linux": "linux"}.get(platform.system())
+            arch = {"arm64": "arm64", "aarch64": "arm64", "x86_64": "x64", "AMD64": "x64"}.get(platform.machine())
+            if not system or not arch:
+                raise ManualError("此平台的 Kimi 原生安装尚未支持")
+            target = f"{system}-{arch}"
+            manifest = self.fetch_json(role, f"https://code.kimi.com/kimi-code/binaries/{version}/manifest.json")
+            platforms = manifest.get("platforms") if isinstance(manifest, dict) else None
+            package = platforms.get(target) if isinstance(platforms, dict) else None
+            if not isinstance(package, dict) or manifest.get("version") != version or \
+                    package.get("filename") != f"kimi-code-{target}" or \
+                    not re.fullmatch(r"[0-9a-f]{64}", str(package.get("checksum", ""))):
+                raise CommandError(f"Kimi {version} 的原生发布清单无效或缺少 {target}")
+            return version
         if found.source == "brew":
             data = json.loads(self.command(role, [found.manager, "info", "--json=v2",
                 "--cask" if found.cask else "--formula", found.package], capture=True, timeout=60))
@@ -423,8 +444,7 @@ class Engine:
         package = found.package or next(iter(PACKAGES.get(role, ())), "")
         if role == "claude" and found.channel != "latest":
             package += "@" + found.channel
-        command = (["curl", "-fsSL", "--connect-timeout", "6", "--max-time", "20", "https://code.kimi.com/kimi-code/latest"]
-                   if role == "kimi" else [found.manager or "npm", "view", package, "version", "--silent"])
+        command = [found.manager or "npm", "view", package, "version", "--silent"]
         output = self.npm_command(role, command, "version-check", capture=True)
         if not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][\w.-]+)?", output):
             raise CommandError("未读到有效的最新版本")
@@ -500,11 +520,15 @@ class Engine:
                              extra_env={"PATH": str(Path(found.manager).parent) + os.pathsep + os.environ.get("PATH", "")})
             return
         if role == "kimi":
+            version = self.jobs[role].latest
+            if not VERSION.fullmatch(version):
+                raise CommandError("Kimi 更新目标版本无效")
             installer = self.log_dir / "kimi-install.sh"
             self.command(role, ["curl", "-fsSL", "--connect-timeout", "6", "--max-time", "60",
                                "https://code.kimi.com/kimi-code/install.sh", "-o", str(installer)], timeout=65)
-            self.command(role, ["bash", str(installer)], timeout=1200,
-                         env=dict(os.environ, KIMI_NO_MODIFY_PATH="1"))
+            self.command(role, ["bash", str(installer), "--version", version], timeout=1200,
+                         env=dict(os.environ, KIMI_NO_MODIFY_PATH="1", KIMI_VERSION=version,
+                                  KIMI_INSTALL_DIR=str(Path(found.path).resolve().parent.parent)))
         elif role == "mcode":
             installer = self.log_dir / "mcode-install.sh"
             self.command(role, ["curl", "-fsSL", "--connect-timeout", "6", "--max-time", "60",
@@ -703,10 +727,12 @@ class Engine:
             except ManualError as error:
                 self.update(role, status="MANUAL", detail=str(error))
                 return
-            # A stable channel may lag an already-installed newer release; never downgrade.
-            if role != "hermes" and newer(current, latest):
-                latest = current
+            # Keep the queried value visible when the channel trails the local
+            # install. Never disguise stale metadata as a successful equality.
             self.update(role, latest=latest)
+            if role != "hermes" and newer(current, latest):
+                self.update(role, status="AHEAD", detail="本机版本高于查询渠道，保留本机版本")
+                return
             if current == latest:
                 self.update(role, status="CURRENT")
                 return

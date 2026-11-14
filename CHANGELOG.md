@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.14.1 — 2026-11-15
+
+- Fix missed Kimi Code releases when the native download site's `latest` marker trails the official npm channel. Query the official package metadata without requiring npm, validate the matching native platform manifest, and pass the exact checked version and detected install directory to the official installer.
+- Keep the actual remote version visible when the installed version is newer. Report `AHEAD` (本机较新) instead of replacing the target with the installed version and incorrectly saying 已是最新. Such installations are never downgraded.
+
 ## 0.14.0 — 2026-11-13
 
 - Add Cursor Agent to AI 编程工具: discover the official `~/.local/share/cursor-agent/versions/` layout (and the short `agent` name only when it resolves into that tree), check with `cursor-agent about --format json` (`cliVersion` / `latestVersion`), and update with the vendor's `cursor-agent update`.
