@@ -61,3 +61,9 @@ The XDG specification requires absolute base-directory values. The previous stat
 - Discovery only accepts the official `~/.local/share/cursor-agent/versions/` tree. The short `agent` name is used only when it resolves into that tree; an unrelated `agent` binary stays missing.
 - Version probes use the vendor's `about --format json`; only `cliVersion` / `latestVersion` drive status. Vendor JSON (and any account fields it may contain) is treated as untrusted log/metadata, same as other adapter output.
 - Updates invoke only the detected executable's `update` command; missing installs stay missing.
+
+## 0.14.1 release-source checks
+
+- Kimi metadata comes from the fixed official npm package endpoint; no npm executable or package-manager migration is introduced. Versions are validated before interpolation into a fixed HTTPS native-manifest URL. The manifest must match that version and platform, with an exact filename and valid sha256 field. Remote metadata supplies no executable command or arbitrary download URL.
+- The official native installer still performs binary checksum verification. Its exact version and installation root are explicitly pinned; inherited KIMI_VERSION/KIMI_INSTALL_DIR cannot silently redirect the update. PATH edits remain disabled.
+- Native package unavailability or invalid metadata produces a failed check, never a fallback to a stale marker. A newer local installation preserves the actual remote value and cannot reach the installer. Regression fixtures cover these boundaries without executing a real vendor update.

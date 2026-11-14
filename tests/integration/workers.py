@@ -74,10 +74,18 @@ elif tool == "curl" and any("downloads.claude.ai/claude-code-releases/1.0.1/mani
           "checksum": hashlib.sha256(payload).hexdigest()} for platform in ("darwin-arm64", "darwin-x64")}}))
 elif tool == "curl" and any("downloads.claude.ai/claude-code-releases/1.0.1/" in arg for arg in args) and "-o" in args:
     shutil.copyfile(root / "claude-source", args[args.index("-o") + 1])
-elif tool == "curl" and args[-1] == "https://code.kimi.com/kimi-code/latest":
-    print("1.0.1")
+elif tool == "curl" and args[-1] == "https://registry.npmjs.org/@moonshot-ai/kimi-code/latest":
+    print(json.dumps({"version": "1.0.1"}))
+elif tool == "curl" and args[-1] == "https://code.kimi.com/kimi-code/binaries/1.0.1/manifest.json":
+    print(json.dumps({"version": "1.0.1", "platforms": {platform: {"filename": "kimi-code-" + platform,
+          "checksum": "a" * 64} for platform in ("darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64")}}))
 elif tool == "curl" and "https://code.kimi.com/kimi-code/install.sh" in args:
-    Path(args[args.index("-o") + 1]).write_text('printf "1.0.1\\n" > "$UPALL_FIXTURE_ROOT/kimi.version"')
+    Path(args[args.index("-o") + 1]).write_text(
+        'set -eu\n'
+        '[ "$1" = "--version" ] && [ "$2" = "1.0.1" ]\n'
+        '[ "$KIMI_VERSION" = "1.0.1" ] && [ "$KIMI_NO_MODIFY_PATH" = "1" ]\n'
+        '[ "$KIMI_INSTALL_DIR" -ef "$UPALL_FIXTURE_ROOT/.kimi-code" ]\n'
+        'printf "1.0.1\\n" > "$UPALL_FIXTURE_ROOT/kimi.version"\n')
 elif tool == "git" and args[-3:] == ["rev-parse", "--short=8", "HEAD"]:
     print(current("hermes"))
 elif tool == "hermes" and args[:2] == ["--run-module", "hermes_cli.source_check"]:
