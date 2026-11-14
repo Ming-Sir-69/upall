@@ -223,7 +223,7 @@ class Terminal:
                     if job.status == "AVAILABLE" else self.icons["done"] if job.status != "SKIPPED"
                     else self.icons["skipped"])
             status = f"{icon} {LABELS[job.status]}"
-            color = "91" if job.status in FAILED else "93" if job.status in {"AVAILABLE", "UPDATING", "VERIFYING", "MANUAL"} else "92" if job.status in {"CURRENT", "UPDATED", "INSTALLED"} else "90" if job.status == "SKIPPED" else "96"
+            color = "91" if job.status in FAILED else "93" if job.status in {"AVAILABLE", "UPDATING", "VERIFYING", "MANUAL", "AHEAD"} else "92" if job.status in {"CURRENT", "UPDATED", "INSTALLED"} else "90" if job.status == "SKIPPED" else "96"
             prefix = self.pointer if index == self.selected else " "
             if wide:
                 main = f"{prefix} {fit(job.label, label_w)} {fit(job.current, ver_w)} {fit(job.latest, ver_w)} "

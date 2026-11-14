@@ -31,7 +31,7 @@ Unknown provenance and project-local dependencies are manual. A discovered execu
 - Global npm: query package metadata using npm view; update the same package with the same npm prefix. Try direct networking first, then the inherited proxy environment.
 - Homebrew: query brew info; update the detected formula/cask only.
 - Claude native: query the appropriate npm distribution channel, then download the exact target from the vendor's versioned manifest. Use aria2c's eight connections when available, prefer the official zstd package when zstd is installed, verify both compressed and uncompressed sha256/size, and run the verified binary's install command for the same target version. Stable/latest settings are read without exporting provider configuration.
-- Kimi script: query https://code.kimi.com/kimi-code/latest and download the official installer from https://code.kimi.com/kimi-code/install.sh only during an update.
+- Kimi script: query the official `@moonshot-ai/kimi-code` latest metadata at registry.npmjs.org using curl (npm is not required), then validate the exact version's native manifest at https://code.kimi.com/kimi-code/binaries/VERSION/manifest.json for this platform. The native `/latest` marker can lag published releases. Download the official installer from https://code.kimi.com/kimi-code/install.sh only during an update; pin its `--version` and install directory to the checked version and detected installation. Unavailable or malformed release metadata fails the check instead of falling back to an old version.
 - Hermes source: invoke its own source-check module and update --yes, preserving its configured channel.
 - OpenClaw: invoke update --dry-run --json to find its target and update --yes to apply.
 - OpenCode native: invoke upgrade --method curl.
@@ -57,6 +57,8 @@ Official upstream references:
 The initial live environment validated Claude, Codex, Kimi and Hermes detection/checks; one Claude update was observed during personal use. Other adapters have fixture coverage, not a full matrix of real operating systems, installation variants and network policies.
 
 Strict revision equality for Hermes and fast-moving release channels can need refinement if a new release appears between check and installation. No downgrade is intended. Compare the exact target in the log before reporting an updater bug.
+
+When the installed version is newer than the queried channel, the job keeps both version values and reports `AHEAD` (本机较新). This can mean the chosen stable channel lags the installation or its metadata is stale; it does not prove that no newer release exists. Neither the default check nor an explicit update downgrades these jobs.
 
 
 ## Host-defined tools

@@ -62,8 +62,8 @@ def summary(engine, log_dir):
 
     order = ([(job, marks["bad"], "91") for job in jobs if job.status in FAILED] +
              [(job, marks["done"], "92") for job in jobs if job.status in {"UPDATED", "INSTALLED", "CURRENT"}] +
-             [(job, marks["wait"], "93") for job in jobs if job.status in {"AVAILABLE", "MANUAL"}] +
-             [(job, marks["skip"], "90") for job in jobs if job.status not in FAILED | {"UPDATED", "INSTALLED", "CURRENT", "AVAILABLE", "MANUAL"}])
+             [(job, marks["wait"], "93") for job in jobs if job.status in {"AVAILABLE", "MANUAL", "AHEAD"}] +
+             [(job, marks["skip"], "90") for job in jobs if job.status not in FAILED | {"UPDATED", "INSTALLED", "CURRENT", "AVAILABLE", "MANUAL", "AHEAD"}])
     print()
     print(paint(f"UPALL · 结果摘要 · {len(jobs)} 项 · 失败 {failed} 项 · 总耗时 {total}s", "1"))
     for job, mark, code in order:
