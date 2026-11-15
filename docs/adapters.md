@@ -24,6 +24,21 @@ Discovery checks PATH and bounded common installation directories, plus explicit
 
 Tools are shown in groups: AI 编程工具 (cli), Agent 插件与技能 (agent), 效率与维护 (app) and 本机项目 (host). `upall agent` or `upall -g app` limits a batch to one group.
 
+### Monitor kinds (orthogonal to groups)
+
+Display groups are not the same as monitor kinds. Monitors select *what kind of capability* to check:
+
+| Kind | Meaning | Default |
+|---|---|---|
+| `runtime` | Programming-tool binaries themselves | on |
+| `plugin` | Host-extension plugins (placeholder this iteration) | off |
+| `skill` | Skill sync / fingerprint checks | on |
+| `mcp` | MCP cache / registry checks | on |
+
+CLI: `upall --monitor runtime,skill,mcp` (comma-separated, repeatable). Combine with `-g/--group` when both filters are useful. Defaults come from `~/.config/upall/monitors.json` (`{"enabled":["runtime","skill","mcp"]}`), or a `monitors` field in the host tools JSON; missing config uses the AI default set above. Host tool entries may set `"monitor": "runtime"` (or another kind).
+
+The default TUI stays check-first and thin: monitor toggles are not dumped onto the home screen. Advanced kinds stay discoverable via `--monitor` and this doc (Sony-camera logic). Missing tools stay missing; discovery never installs.
+
 Unknown provenance and project-local dependencies are manual. A discovered executable that cannot run is a query failure rather than an instruction to reinstall. Source package aliases do not automatically migrate between namespaces.
 
 ## Network and execution

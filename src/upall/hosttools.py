@@ -31,7 +31,7 @@ from pathlib import Path
 import re
 import stat
 
-from .discovery import GROUPS, TOOLS, Installation
+from .discovery import DEFAULT_MONITORS, GROUPS, MONITORS, TOOLS, Installation
 
 ID = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 
@@ -40,15 +40,28 @@ class ConfigError(Exception):
     pass
 
 
+def _config_base():
+    base = os.environ.get("XDG_CONFIG_HOME")
+    return Path(base) if base and Path(base).is_absolute() else Path.home() / ".config"
+
+
 def config_path():
     explicit = os.environ.get("UPALL_CONFIG")
     if explicit:
         return Path(explicit).expanduser()
     if os.environ.get("UPALL_SEARCH_PATH"):
         return None  # isolated runs never read the real host config
-    base = os.environ.get("XDG_CONFIG_HOME")
-    base = Path(base) if base and Path(base).is_absolute() else Path.home() / ".config"
-    return base / "upall/tools.json"
+    return _config_base() / "upall/tools.json"
+
+
+def monitors_path():
+    """Optional ~/.config/upall/monitors.json (or UPALL_MONITORS_CONFIG)."""
+    explicit = os.environ.get("UPALL_MONITORS_CONFIG")
+    if explicit:
+        return Path(explicit).expanduser()
+    if os.environ.get("UPALL_SEARCH_PATH"):
+        return None
+    return _config_base() / "upall/monitors.json"
 
 
 def _argv(value, name):
@@ -61,6 +74,74 @@ def _argv(value, name):
     return [first, *value[1:]]
 
 
+def _owner_only(path):
+    info = path.stat()
+    if info.st_uid != os.getuid() or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise ConfigError(f"{path} 必须属于当前用户且不可被他人写入")
+
+
+def _read_object(path):
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeError) as error:
+        raise ConfigError(f"{path} 无法读取：{error}") from None
+    if not isinstance(data, dict):
+        raise ConfigError(f"{path} 顶层必须是对象")
+    return data
+
+
+def _parse_enabled_monitors(value, source):
+    """Accept a list of kinds, or {\"enabled\": [...]} / {kind: bool} maps."""
+    if isinstance(value, dict):
+        if "enabled" in value:
+            value = value["enabled"]
+        else:
+            unknown = set(value) - set(MONITORS)
+            if unknown:
+                raise ConfigError(f"{source}: 未知监测类型 {', '.join(sorted(unknown))}")
+            enabled = {kind for kind, on in value.items() if on}
+            bad = enabled - set(MONITORS)
+            if bad:
+                raise ConfigError(f"{source}: 未知监测类型 {', '.join(sorted(bad))}")
+            return frozenset(enabled)
+    if not isinstance(value, list) or not value or not all(isinstance(item, str) and item for item in value):
+        raise ConfigError(f"{source}: monitors 必须是非空类型名数组")
+    unknown = set(value) - set(MONITORS)
+    if unknown:
+        raise ConfigError(f"{source}: 未知监测类型 {', '.join(sorted(unknown))}")
+    return frozenset(value)
+
+
+def load_monitors(path=None, tools_config=None):
+    """Return enabled monitor kinds; missing config → DEFAULT_MONITORS.
+
+    Precedence: dedicated monitors.json (or path) > tools.json \"monitors\" field > defaults.
+    Isolated runs (UPALL_SEARCH_PATH) skip user files unless an explicit path is passed.
+    """
+    if path is not None:
+        if not path.exists():
+            return frozenset(DEFAULT_MONITORS)
+        _owner_only(path)
+        data = _read_object(path)
+        payload = data["enabled"] if "enabled" in data else data
+        return _parse_enabled_monitors(payload, str(path))
+
+    dedicated = monitors_path()
+    if dedicated is not None and dedicated.exists():
+        _owner_only(dedicated)
+        data = _read_object(dedicated)
+        payload = data["enabled"] if "enabled" in data else data
+        return _parse_enabled_monitors(payload, str(dedicated))
+
+    tools_path = tools_config if tools_config is not None else config_path()
+    if tools_path is not None and tools_path.exists():
+        _owner_only(tools_path)
+        data = _read_object(tools_path)
+        if "monitors" in data:
+            return _parse_enabled_monitors(data["monitors"], f"{tools_path} monitors")
+    return frozenset(DEFAULT_MONITORS)
+
+
 def load(path=None):
     """Return (tools, preserve, after_update); raise ConfigError.
 
@@ -69,15 +150,8 @@ def load(path=None):
     path = config_path() if path is None else path
     if path is None or not path.exists():
         return {}, {}, {}
-    info = path.stat()
-    if info.st_uid != os.getuid() or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
-        raise ConfigError(f"{path} 必须属于当前用户且不可被他人写入")
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, UnicodeError) as error:
-        raise ConfigError(f"{path} 无法读取：{error}") from None
-    if not isinstance(data, dict):
-        raise ConfigError(f"{path} 顶层必须是对象")
+    _owner_only(path)
+    data = _read_object(path)
     tools = {}
     for item in data.get("tools", []):
         if not isinstance(item, dict) or not ID.fullmatch(str(item.get("id", ""))):
@@ -86,6 +160,9 @@ def load(path=None):
         group = item.get("group", "host")
         if group not in GROUPS:
             raise ConfigError(f"{role}: group 只能是 {', '.join(GROUPS)}")
+        monitor = item.get("monitor", "runtime")
+        if monitor not in MONITORS:
+            raise ConfigError(f"{role}: monitor 只能是 {', '.join(MONITORS)}")
         kind = item.get("kind", "command")
         timeout = item.get("timeout", 1800)
         if not isinstance(timeout, int) or not 10 <= timeout <= 7200:
@@ -112,7 +189,8 @@ def load(path=None):
         tools[role] = Installation(
             role, path_hint if present else "", "host" if kind == "command" else "git",
             update_supported=present, reason="" if present else "配置的路径不存在",
-            label=str(item.get("label") or TOOLS.get(role, role)), group=group, spec=spec)
+            label=str(item.get("label") or TOOLS.get(role, role)), group=group,
+            monitor=monitor, spec=spec)
     preserve = {}
     for role, paths in (data.get("preserve") or {}).items():
         if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
