@@ -19,23 +19,7 @@ from typing import Iterable
 # Directory names we treat as the WebBridge vendor skill (and close aliases).
 WEBBRIDGE_NAMES = frozenset({"kimi-webbridge", "webbridge", "kimi-browser-extension"})
 
-# Host skill roots relative to $HOME. Order is display / source preference.
-HOME_SKILL_ROOTS = (
-    ("claude", ".claude/skills"),
-    ("codex", ".codex/skills"),
-    ("kimi-code", ".kimi-code/skills"),
-    ("hermes", ".hermes/skills"),
-    ("agents", ".agents/skills"),
-    ("cursor", ".cursor/skills"),
-    ("cursor-builtin", ".cursor/skills-cursor"),
-)
-
-# Optional project-local skill dirs (relative to a project root).
-PROJECT_SKILL_ROOTS = (
-    ("project-claude", ".claude/skills"),
-    ("project-agents", ".agents/skills"),
-    ("project-cursor", ".cursor/skills"),
-)
+_SKILL_DIR_NAMES = {"skills", "skills-cursor"}
 
 # Prefer these hosts when choosing a sync source among equal candidates.
 _SOURCE_HOST_RANK = {
@@ -119,14 +103,83 @@ class SyncPlan:
         return any(action.kind == "replace_tree" for action in self.actions)
 
 
-def default_skill_roots(home: Path | None = None, project_root: Path | None = None) -> list[SkillRoot]:
-    """Common skill directories for Claude / Codex / Kimi / Hermes / Cursor / agents."""
+def _host_from_skill_root(path: Path, home: Path) -> str:
+    if path.name == "skills-cursor":
+        return "cursor-builtin"
+    try:
+        rel = path.resolve().relative_to(home.resolve())
+        parts = list(rel.parts)
+    except ValueError:
+        parts = list(path.parts)
+    for part in parts:
+        if part.startswith(".") and part not in {".config", ".local", ".cache"}:
+            return part.lstrip(".") or "skill"
+    if path.name.startswith("skills"):
+        parent = path.parent.name.lstrip(".")
+        return parent or path.name
+    return path.name
+
+
+def find_skill_roots(home: Path | None = None, project_root: Path | None = None) -> list[SkillRoot]:
+    """Find directories that structurally hold skills (child dirs with SKILL.md)."""
     home = Path(home or Path.home()).expanduser()
-    roots = [SkillRoot(host, home / relative) for host, relative in HOME_SKILL_ROOTS]
+    found: list[SkillRoot] = []
+    seen: set[Path] = set()
+
+    def consider(path: Path, host: str | None = None):
+        if not path.is_dir():
+            return
+        try:
+            key = path.resolve()
+        except OSError:
+            key = path
+        if key in seen:
+            return
+        # Must contain at least one installed skill (SKILL.md child).
+        try:
+            for child in path.iterdir():
+                if child.name.startswith("."):
+                    continue
+                if (child / "SKILL.md").exists():
+                    break
+            else:
+                return
+        except OSError:
+            return
+        seen.add(key)
+        found.append(SkillRoot(host or _host_from_skill_root(path, home), path))
+
+    try:
+        for child in home.iterdir():
+            if not child.is_dir() or not child.name.startswith("."):
+                continue
+            # .claude/skills, .codex/skills, .kimi-code/skills, .cursor/skills-cursor …
+            for name in _SKILL_DIR_NAMES:
+                consider(child / name)
+            # one nested level: .foo/bar/skills
+            try:
+                for sub in child.iterdir():
+                    if sub.is_dir() and not sub.name.startswith("."):
+                        for name in _SKILL_DIR_NAMES:
+                            consider(sub / name)
+            except OSError:
+                pass
+    except OSError:
+        pass
+
     if project_root is not None:
         project = Path(project_root).expanduser()
-        roots.extend(SkillRoot(host, project / relative) for host, relative in PROJECT_SKILL_ROOTS)
-    return roots
+        consider(project / ".claude" / "skills", host="project-claude")
+        consider(project / ".agents" / "skills", host="project-agents")
+        consider(project / ".cursor" / "skills", host="project-cursor")
+        consider(project / ".cursor" / "skills-cursor", host="project-cursor")
+
+    return found
+
+
+def default_skill_roots(home: Path | None = None, project_root: Path | None = None) -> list[SkillRoot]:
+    """Skill roots discovered by structure (dirs that actually contain SKILL.md)."""
+    return find_skill_roots(home=home, project_root=project_root)
 
 
 def is_webbridge_name(name: str) -> bool:
@@ -228,15 +281,14 @@ def _looks_project_link(link: Path, target: Path) -> bool:
     parts = {part.lower() for part in resolved.parts}
     if "skills" in parts and any(marker in parts for marker in ("项目库", "projects", "src", "repo", "repos")):
         return True
-    # Outside home skill roots → treat as project/self-maintained.
+    # Outside home host-config trees → treat as project/self-maintained.
     home = Path.home()
-    skill_markers = tuple(relative.split("/")[0] for _, relative in HOME_SKILL_ROOTS)
     try:
         relative = resolved.relative_to(home)
     except ValueError:
         return True
     top = relative.parts[0] if relative.parts else ""
-    if top.startswith(".") and top in {f".{name.split('-')[0]}" for name in skill_markers}:
+    if top.startswith(".") and top not in {".config", ".local", ".cache", ".Trash"}:
         # Still under a host config tree (e.g. ~/.agents/skills via relative link).
         return ".git" in parts or "项目库" in resolved.as_posix()
     return True

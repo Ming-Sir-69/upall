@@ -7,7 +7,12 @@ import unittest
 
 from upall.discovery import Installation
 from upall.engine import Engine
-from upall.layerjobs import build_mcp_installations, is_layer_role, layer_role
+from upall.layerjobs import (
+    build_mcp_installations,
+    build_skill_installations,
+    is_layer_role,
+    layer_role,
+)
 from upall.layers.mcp import discover_mcp_entries
 from upall.terminal import Terminal
 
@@ -34,11 +39,43 @@ class McpDiscoveryTests(unittest.TestCase):
             entries = {f"{e['host']}:{e['id']}": e for e in discover_mcp_entries(home)}
             self.assertIn("kimi-code:playwright", entries)
             self.assertEqual(entries["kimi-code:playwright"]["config"]["command"], "npx")
+            self.assertNotIn("kimi-code:bundled", entries)  # missing binary → not installed
             tools = build_mcp_installations(home)
             role = layer_role("mcp", "kimi-code", "playwright")
             self.assertIn(role, tools)
             self.assertEqual(tools[role].monitor, "mcp")
             self.assertTrue(is_layer_role(role))
+
+    def test_mcp_and_skill_dedupe_hosts_in_one_row(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            payload = {"mcpServers": {
+                "playwright": {"command": "npx", "args": ["-y", "@playwright/mcp@latest"]},
+            }}
+            for host in (".cursor", ".kimi-code"):
+                path = home / host / "mcp.json"
+                path.parent.mkdir(parents=True)
+                path.write_text(json.dumps(payload))
+            body = "---\nname: demo-skill\n---\n# demo\n"
+            for host in (".claude", ".codex"):
+                skill = home / host / "skills" / "demo-skill"
+                skill.mkdir(parents=True)
+                (skill / "SKILL.md").write_text(body, encoding="utf-8")
+            # Empty skill root (no SKILL.md children) must not appear
+            (home / ".hermes" / "skills").mkdir(parents=True)
+
+            mcp_tools = build_mcp_installations(home)
+            self.assertEqual(len(mcp_tools), 1)
+            mcp = next(iter(mcp_tools.values()))
+            self.assertIn("cursor", mcp.label)
+            self.assertIn("kimi-code", mcp.label)
+
+            skill_tools = build_skill_installations(home)
+            self.assertEqual(len(skill_tools), 1)
+            skill = next(iter(skill_tools.values()))
+            self.assertEqual(skill.spec["name"], "demo-skill")
+            self.assertEqual(sorted(skill.spec["hosts"]), ["claude", "codex"])
+            self.assertNotIn("hermes", skill.spec["hosts"])
 
 
 class LiveRefreshTests(unittest.TestCase):

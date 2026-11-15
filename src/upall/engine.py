@@ -963,6 +963,9 @@ class Engine:
         monitors = set(getattr(self.args, "monitors", ()) or ())
         if self.args.demo or not monitors:
             return {}
+        # Fixture / isolated discovery must not scan the real home MCP/Skill trees.
+        if os.environ.get("UPALL_SEARCH_PATH"):
+            return {}
         layers = {}
         if "mcp" in monitors:
             try:

@@ -82,6 +82,22 @@ class DiscoveryTests(unittest.TestCase):
         self.assertNotIn("env", by_id["fs"]["config"])
         self.assertNotIn("headers", by_id["remote"]["config"])
         self.assertEqual(by_id["playwright"]["host"], "claude-desktop")
+        # Disabled / missing absolute binaries are not installed → omitted
+        self.assertNotIn("off", by_id)
+        self.assertNotIn("bin", by_id)
+
+    def test_dedupes_identical_fingerprint_across_hosts(self):
+        payload = {
+            "mcpServers": {
+                "playwright": {"command": "npx", "args": ["-y", "@playwright/mcp@latest"]},
+            }
+        }
+        _write(self.home / ".cursor" / "mcp.json", payload)
+        _write(self.home / ".kimi-code" / "mcp.json", payload)
+        entries = discover_mcp_entries(self.home)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["id"], "playwright")
+        self.assertEqual(sorted(entries[0]["hosts"]), ["cursor", "kimi-code"])
 
 
 class CacheAndCheckTests(unittest.TestCase):
@@ -119,12 +135,17 @@ class CacheAndCheckTests(unittest.TestCase):
     def test_iter_mcp_checks_classifies_skip_and_npx(self):
         pkg = "@modelcontextprotocol/server-filesystem"
         _seed_npx_cache(self.home, f"{pkg}@latest", pkg, "1.2.3")
+        existing = self.home / "bin" / "native-mcp"
+        existing.parent.mkdir(parents=True)
+        existing.write_text("#!/bin/sh\n", encoding="utf-8")
+        existing.chmod(0o755)
         _write(self.home / ".cursor" / "mcp.json", {
             "mcpServers": {
                 "fs": {"command": "npx", "args": ["-y", f"{pkg}@latest", "/data"]},
                 "remote": {"type": "sse", "url": "https://example.test/sse"},
                 "off": {"command": "npx", "args": ["other@latest"], "disabled": True},
-                "native": {"command": "/Applications/Tool.app/Contents/MacOS/tool", "args": []},
+                "native": {"command": str(existing), "args": []},
+                "missing": {"command": "/no/such/mcp-binary", "args": []},
             }
         })
         results = {r["id"]: r for r in iter_mcp_checks(
@@ -133,8 +154,9 @@ class CacheAndCheckTests(unittest.TestCase):
         self.assertEqual(results["fs"]["package"], pkg)
         self.assertEqual(results["remote"]["status"], "skip")
         self.assertIn("remote", results["remote"]["reason"])
-        self.assertEqual(results["off"]["status"], "skip")
         self.assertEqual(results["native"]["status"], "skip")
+        self.assertNotIn("off", results)
+        self.assertNotIn("missing", results)
 
     def test_compare_versions(self):
         self.assertEqual(compare_versions("1.0.0", "1.0.1"), "outdated")
