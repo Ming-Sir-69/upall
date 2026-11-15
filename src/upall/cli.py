@@ -201,7 +201,8 @@ def main(argv=None):
                 print(json.dumps({"schema": 1, "jobs": [], "message": "上次没有失败项。"}, ensure_ascii=False)
                       if args.json else "上次没有失败项。")
                 return 0
-        if not roles:
+        layer_only = (not args.demo) and bool(monitors & {"mcp", "skill"})
+        if not roles and not layer_only:
             message = "未检测到已安装的工具；可用 upall --list 查看支持列表。"
             print(json.dumps({"schema": 1, "jobs": [], "message": message}, ensure_ascii=False) if args.json else message)
             return 0
@@ -210,7 +211,11 @@ def main(argv=None):
             for role in roles:
                 (log_dir / f"{role}.log").write_text("")
         engine = Engine(args, roles, log_dir, installations, preserve, hooks)
-        for role in roles:
+        if not engine.jobs:
+            message = "未检测到已安装的工具或 MCP/Skill；可用 upall --list / 4 设置 查看。"
+            print(json.dumps({"schema": 1, "jobs": [], "message": message}, ensure_ascii=False) if args.json else message)
+            return 0
+        for role in engine.jobs:
             engine.update(role, current="-", latest="-", status="QUEUED")
         prior_handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
         for sig in prior_handlers:

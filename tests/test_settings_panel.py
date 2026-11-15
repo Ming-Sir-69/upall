@@ -78,7 +78,8 @@ class SettingsPanelTests(unittest.TestCase):
                     self.view.toggle_draft_monitor()
             self.assertIn("plugin", self.view.draft_monitors)
             self.assertEqual(hosttools.load_monitors(path), self.view.engine.args.monitors)
-            self.assertIn("已保存", self.view.hint)
+            self.assertIn("已生效", self.view.hint)
+            self.assertIsNone(self.view.panel)
 
     def test_fullwidth_4_opens_settings(self):
         self.assertTrue(self.view.key("４"))

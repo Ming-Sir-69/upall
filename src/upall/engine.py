@@ -16,6 +16,7 @@ import threading
 import time
 import urllib.parse
 from .discovery import APP_BUNDLES, GROUPS, PACKAGES, Installation, app_info, discover
+from .layerjobs import build_mcp_installations, build_skill_installations, is_layer_role
 from .models import Job
 from . import overlay as overlays
 from .status import LABELS
@@ -64,6 +65,10 @@ class Engine:
             self.jobs[role] = Job(role, found.label, path=found.path, source=found.source, group=found.group,
                                   installed=found.installed, update_supported=found.update_supported,
                                   overlay=self.preserve_text(role))
+        self.base_installations = {
+            role: item for role, item in self.installations.items()
+            if isinstance(item, Installation) and not is_layer_role(role)
+        }
         if "hermes" in self.installations and self.installations["hermes"].root:
             self.hermes_root = Path(self.installations["hermes"].root)
         self.guard = threading.RLock()
@@ -73,6 +78,8 @@ class Engine:
         self.started = time.monotonic()
         self.finished = 0
         self.install_locks = {}
+        if not args.demo:
+            self.ensure_layers()
 
     def update(self, role, **values):
         with self.guard:
@@ -86,15 +93,84 @@ class Engine:
         with self.guard:
             return [Job(**asdict(job)) for job in self.jobs.values()]
 
-    def start(self, roles=None, *, install=False):
-        if install:
+    def _make_job(self, role, found):
+        return Job(role, found.label, path=found.path, source=found.source, group=found.group,
+                   installed=found.installed, update_supported=found.update_supported,
+                   overlay=self.preserve_text(role))
+
+    def ensure_layers(self):
+        """Add or drop MCP/Skill jobs so the main list matches enabled monitors."""
+        if self.args.demo:
+            return
+        # Fixture / isolated discovery must not scan the real home MCP/Skill trees.
+        if os.environ.get("UPALL_SEARCH_PATH"):
+            return
+        monitors = set(getattr(self.args, "monitors", ()) or ())
+        with self.guard:
+            for role in [role for role in self.jobs if is_layer_role(role)]:
+                if self.installations[role].monitor not in monitors:
+                    self.jobs.pop(role, None)
+                    self.installations.pop(role, None)
+            if "mcp" in monitors:
+                for role, found in build_mcp_installations().items():
+                    self.installations[role] = found
+                    if role not in self.jobs:
+                        self.jobs[role] = self._make_job(role, found)
+            else:
+                for role in [role for role in self.jobs if role.startswith("mcp.")]:
+                    self.jobs.pop(role, None)
+                    self.installations.pop(role, None)
+            if "skill" in monitors:
+                for role, found in build_skill_installations().items():
+                    self.installations[role] = found
+                    if role not in self.jobs:
+                        self.jobs[role] = self._make_job(role, found)
+                    else:
+                        self.jobs[role].update_supported = found.update_supported
+                        self.jobs[role].path = found.path
+            else:
+                for role in [role for role in self.jobs if role.startswith("skill.")]:
+                    self.jobs.pop(role, None)
+                    self.installations.pop(role, None)
+
+    def apply_monitors(self, enabled):
+        """Persist-independent live apply: rebuild visible jobs and return roles to refresh."""
+        enabled = frozenset(enabled)
+        self.args.monitors = enabled
+        with self.guard:
+            for role in list(self.jobs):
+                found = self.installations.get(role)
+                if not found or found.monitor not in enabled:
+                    self.jobs.pop(role, None)
+                    if found and is_layer_role(role):
+                        self.installations.pop(role, None)
+            show_missing = bool(getattr(self.args, "inventory", False) or getattr(self.args, "all", False))
+            for role, found in self.base_installations.items():
+                if found.monitor not in enabled:
+                    continue
+                if role in self.jobs:
+                    continue
+                if found.installed or show_missing:
+                    self.installations[role] = found
+                    self.jobs[role] = self._make_job(role, found)
+        self.ensure_layers()
+        return list(self.jobs)
+
+    def start(self, roles=None, *, install=None):
+        # install=None → follow current mode (CLI --update). False → explicit refresh/check.
+        if install is None:
+            install = self.mode == "update"
+        elif install:
             self.mode = "update"
+        elif self.mode == "update":
+            self.mode = "check"
         self.finished = 0
         self.futures = []
-        for role in list(roles or self.jobs):
+        wanted = [role for role in (roles or list(self.jobs)) if role in self.jobs]
+        for role in wanted:
             self.update(role, status="QUEUED", detail="", started=time.monotonic(), ended=0,
                         attempt=self.jobs[role].attempt + 1)
-            self.futures.append(self.pool.submit(self.worker, role, self.mode == "update"))
+            self.futures.append(self.pool.submit(self.worker, role, bool(install)))
 
     def done(self):
         done = all(future.done() for future in self.futures)
@@ -704,6 +780,85 @@ class Engine:
         with (self.log_dir / f"{role}.log").open("a") as log:
             log.write(f"demo: {role} · {LABELS[self.jobs[role].status]}\n")
 
+    def check_mcp_job(self, role, install):
+        """Surface MCP recognition on the main list (CC Switch–style inventory)."""
+        from .layers.mcp import check_mcp_entry
+        found = self.installations[role]
+        entry = (found.spec or {}).get("entry") or {}
+        result = check_mcp_entry(entry, fetch_latest=self.mode != "inventory")
+        self.meta[role] = result
+        reason = clean(str(result.get("reason") or ""))[:200]
+        current = str(result.get("current") or "-")
+        latest = str(result.get("latest") or "-")
+        self.update(role, current=current, latest=latest)
+        self.log(role, f"mcp {result.get('status')} · {reason}")
+        if self.mode == "inventory":
+            self.update(role, status="INSTALLED", detail=reason)
+            return
+        status = result.get("status")
+        if status == "outdated":
+            # Recognition first; do not rewrite MCP JSON / run npx install from here.
+            detail = reason or "npx 缓存落后于 registry"
+            if install:
+                self.update(role, status="MANUAL", detail=detail + " · 请手动刷新缓存（不改写配置）")
+            else:
+                self.update(role, status="AVAILABLE", detail=detail)
+            found.update_supported = False
+            self.jobs[role].update_supported = False
+            return
+        if status == "ok":
+            self.update(role, status="CURRENT", detail=reason)
+            return
+        if status == "skip":
+            if "disabled" in reason:
+                self.update(role, status="SKIPPED", detail=reason)
+            elif "remote" in reason:
+                self.update(role, status="CURRENT", detail="远程服务 · 无本地版本可比对")
+            else:
+                self.update(role, status="CURRENT", detail="应用自带或本地命令 · 随宿主更新")
+            return
+        self.update(role, status="MANUAL", detail=reason or "无法确认 MCP 版本")
+
+    def check_skill_job(self, role, install):
+        """Fingerprint-based Skill recognition; WebBridge drift can sync after confirm."""
+        from .layers.skills import apply_sync_plan, is_webbridge_name, plan_webbridge_sync
+        found = self.installations[role]
+        spec = found.spec or {}
+        # Re-scan this path's family so refresh sees fresh fingerprints.
+        from .layerjobs import build_skill_installations
+        for other_role, other in build_skill_installations().items():
+            if other_role == role or (
+                other.spec.get("name") == spec.get("name") and other.spec.get("host") == spec.get("host")
+            ):
+                found = other
+                self.installations[role] = other
+                spec = other.spec or {}
+                break
+        fp = str(spec.get("fingerprint") or "")
+        short = fp[:12] if fp else "-"
+        state = str(spec.get("sync_state") or "")
+        self.update(role, current=short, latest="sync" if state == "drift" else short)
+        self.log(role, f"skill {state} · {found.path}")
+        if self.mode == "inventory":
+            self.update(role, status="INSTALLED", detail=state)
+            return
+        if install and state == "drift" and is_webbridge_name(str(spec.get("name") or "")):
+            plan = plan_webbridge_sync(source=self.webbridge_skill_source("kimi-webbridge"))
+            if plan.needs_sync:
+                updated = apply_sync_plan(plan, confirm=True)
+                self.log(role, f"已同步 {len(updated)} 处副本")
+                self.update(role, status="UPDATED", detail="多宿主副本已对齐", current=short, latest=short)
+                return
+        if state == "drift":
+            self.update(role, status="AVAILABLE", detail="多宿主副本不一致")
+            found.update_supported = True
+            self.jobs[role].update_supported = True
+            return
+        if spec.get("is_symlink"):
+            self.update(role, status="CURRENT", detail="软链 · 自维护")
+            return
+        self.update(role, status="CURRENT", detail=state or "已识别")
+
     def worker(self, role, install):
         phase = "QUERY-FAILED"
         try:
@@ -715,6 +870,13 @@ class Engine:
                 self.demo(role, install)
                 return
             found = self.installations[role]
+            kind = (found.spec or {}).get("kind")
+            if kind == "mcp":
+                self.check_mcp_job(role, install)
+                return
+            if kind == "skill":
+                self.check_skill_job(role, install)
+                return
             if not found.installed:
                 self.update(role, status="SKIPPED", detail="未找到可执行命令")
                 return

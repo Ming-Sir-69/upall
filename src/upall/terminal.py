@@ -213,8 +213,8 @@ class Terminal:
         if self.hint:
             content.append((self.hint, "93"))
         else:
-            content.append(("空格/1 开关 · 回车/0/Esc 返回 · 下次 upall 生效", "90"))
-        content.append(("S/4 也可关闭本页", "90"))
+            content.append(("空格/1 开关并立即重检 · 回车/0/Esc 返回", "90"))
+        content.append(("主表会列出 MCP/Skill；2 无失败时=刷新", "90"))
         limit = max(1, rows - 3)
         if len(content) > limit:
             content = content[:max(0, limit - 1)] + [content[-1]]
@@ -231,6 +231,19 @@ class Terminal:
         if self.panel == "settings":
             return self.settings_frame(cols, rows)
         jobs = self.engine.snapshot()
+        if not jobs:
+            inner = max(1, min(92, cols - 6))
+            content = [("UPALL · 工具更新", "1;96"),
+                       ("当前监测下没有可显示项 · 按 4 设置", "93"),
+                       ("回车/0 退出", "90")]
+            top_left, top_right, bottom_left, bottom_right, horizontal, vertical = self.box
+            border = horizontal * (inner + 2)
+            lines = [self.paint(top_left + border + top_right, "90")]
+            for text, color in content:
+                body = self.paint(fit(text, inner), color)
+                lines.append(self.paint(vertical + " ", "90") + body + self.paint(" " + vertical, "90"))
+            lines.append(self.paint(bottom_left + border + bottom_right, "90"))
+            return lines
         self.selected %= len(jobs)
         inner = max(1, min(92, cols - 6))
         done = sum(job.status not in ACTIVE for job in jobs)
@@ -341,7 +354,8 @@ class Terminal:
         else:
             content.append(("正在并行检查版本" if self.engine.mode == "check" else "正在并行检查和更新", "90"))
         if ended:
-            actions = "空格/1 更新 · 2 重试 · 3 日志 · 4 设置" if inner >= 36 else "空格/1 · 2 · 3 · 4 设置"
+            actions = ("空格/1 更新 · 2 重试/刷新 · 3 日志 · 4 设置" if inner >= 44
+                       else "空格/1 · 2 刷新 · 3 · 4 设置")
             content.append((actions, "90"))
             content.append(("回车/0 返回终端 · Esc 退出" if inner >= 26 else "回车/0 退出", "90"))
         else:
@@ -414,10 +428,18 @@ class Terminal:
         else:
             self.draft_monitors.add(kind)
         try:
+            if not self.engine.done():
+                self.hint = "请等本轮检查结束再切换（结束后改设置会立即重检）"
+                return
             saved = hosttools.save_monitors(self.draft_monitors)
             self.draft_monitors = set(saved)
-            self.engine.args.monitors = frozenset(saved)
-            self.hint = f"已保存 · {MONITORS[kind]} 已{'开' if kind in saved else '关'} · 下次 upall 生效"
+            roles = self.engine.apply_monitors(saved)
+            self.selected = min(self.selected, max(0, len(self.engine.jobs) - 1))
+            self.panel = None
+            self.hint = f"已生效 · {MONITORS[kind]} 已{'开' if kind in saved else '关'} · 正在重新检查"
+            self.offset = 0
+            if roles:
+                self.engine.start(roles, install=False)
         except hosttools.ConfigError as error:
             self.hint = str(error)
 
@@ -463,13 +485,27 @@ class Terminal:
             self.hint = "任务运行中；完成后回车/0 退出"
         elif self.engine.done() and key.lower() in (" ", "1", "2", "r", "u"):
             retry = key.lower() in ("2", "r")
-            wanted = [job.role for job in jobs if job.status in (FAILED if retry else {"AVAILABLE"})]
-            if wanted:
-                self.hint = ""
-                self.offset = 0
-                self.engine.start(wanted, install=not retry)
+            if retry:
+                failed_jobs = [job for job in jobs if job.status in FAILED]
+                if failed_jobs:
+                    wanted = [job.role for job in failed_jobs]
+                    # Query failures → recheck; update failures → retry the install.
+                    install = any(job.status in {"UPDATE-FAILED", "VERIFYING-FAILED"}
+                                  for job in failed_jobs)
+                    self.hint = ""
+                else:
+                    # No failures → refresh everything (re-discover layers + recheck).
+                    self.engine.ensure_layers()
+                    wanted, install = list(self.engine.jobs), False
+                    self.hint = "正在刷新检查…"
             else:
-                self.hint = "没有失败项" if retry else "没有可更新项"
+                wanted = [job.role for job in jobs if job.status == "AVAILABLE"]
+                install = True
+                self.hint = "" if wanted else "没有可更新项"
+            if wanted:
+                self.offset = 0
+                self.selected = min(self.selected, max(0, len(self.engine.jobs) - 1))
+                self.engine.start(wanted, install=install)
         return True
 
     def run(self):

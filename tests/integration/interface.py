@@ -114,6 +114,7 @@ with tempfile.TemporaryDirectory(prefix="upall-interface-") as tmp:
             assert "退出" in "\n".join(frame)
         frame = "\n".join(view.frame(120, 40))
         assert "空格/1 更新" in frame and "2 重试" in frame and "3 日志" in frame and "4 设置" in frame
+        assert "刷新" in frame
         view.key("4")
         settings = "\n".join(view.frame(120, 40))
         assert "UPALL · 设置" in settings and "监测类型" in settings

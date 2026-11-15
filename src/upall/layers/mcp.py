@@ -62,16 +62,26 @@ def _read_json(path: Path) -> Optional[Any]:
 
 
 def mcp_config_candidates(home: Optional[Path | str] = None) -> list[tuple[str, Path]]:
-    """Known user-level MCP config paths (host, path). Missing files are fine."""
+    """Known user-level MCP config paths (host, path). Missing files are fine.
+
+    Paths follow the same host set CC Switch documents (JSON first; Codex TOML separate).
+    """
     root = _home(home)
     candidates: list[tuple[str, Path]] = [
         ("cursor", root / ".cursor" / "mcp.json"),
         ("claude-code", root / ".claude.json"),
         ("claude-desktop", root / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"),
         ("claude-desktop", root / ".config" / "Claude" / "claude_desktop_config.json"),
+        ("kimi-code", root / ".kimi-code" / "mcp.json"),
+        ("opencode", root / ".config" / "opencode" / "opencode.json"),
+        ("opencode", root / ".opencode" / "opencode.json"),
+        ("pi", root / ".pi" / "agent" / "mcp.json"),
+        ("minimax", root / ".minimax" / "mcp.json"),
         ("vscode", root / "Library" / "Application Support" / "Code" / "User" / "mcp.json"),
         ("vscode", root / ".config" / "Code" / "User" / "mcp.json"),
         ("windsurf", root / ".codeium" / "windsurf" / "mcp_config.json"),
+        ("codex", root / ".codex" / "config.toml"),
+        ("gemini", root / ".gemini" / "settings.json"),
     ]
     appdata = os.environ.get("APPDATA")
     if appdata:
@@ -84,9 +94,13 @@ def _iter_server_maps(data: Any) -> Iterable[tuple[str, dict]]:
     """Yield (scope, mcpServers-dict) from common config shapes without leaking secrets."""
     if not isinstance(data, dict):
         return
-    servers = data.get("mcpServers")
-    if isinstance(servers, dict):
-        yield "", servers
+    for key in ("mcpServers", "mcp_servers", "mcp"):
+        servers = data.get(key)
+        if isinstance(servers, dict):
+            # OpenCode may nest under mcp.<name> with type wrappers; keep dict values only.
+            cleaned = {name: raw for name, raw in servers.items() if isinstance(name, str) and isinstance(raw, dict)}
+            if cleaned:
+                yield "", cleaned
     # Claude Code may nest per-project servers; only take mcpServers maps.
     projects = data.get("projects")
     if isinstance(projects, dict):
@@ -99,19 +113,45 @@ def _iter_server_maps(data: Any) -> Iterable[tuple[str, dict]]:
                 yield label, nested
 
 
+def _read_toml_mcp_servers(path: Path) -> Optional[dict]:
+    """Read Codex-style [mcp_servers.*] tables via stdlib tomllib."""
+    try:
+        import tomllib
+    except ImportError:  # pragma: no cover — Python 3.11+
+        return None
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    servers = data.get("mcp_servers")
+    return servers if isinstance(servers, dict) else None
+
+
 def discover_mcp_entries(home: Optional[Path | str] = None) -> list[dict[str, Any]]:
     """Read-only discovery of MCP server entries from local host configs."""
     entries: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
     for host, path in mcp_config_candidates(home):
-        data = _read_json(path)
-        if data is None:
+        if not path.exists():
             continue
-        for scope, servers in _iter_server_maps(data):
+        if path.suffix.lower() == ".toml":
+            servers = _read_toml_mcp_servers(path)
+            scopes: list[tuple[str, dict]] = [("", servers)] if servers else []
+        else:
+            data = _read_json(path)
+            if data is None:
+                continue
+            scopes = list(_iter_server_maps(data))
+        for scope, servers in scopes:
             if not isinstance(servers, dict):
                 continue
             for server_id, raw in servers.items():
                 if not isinstance(server_id, str) or not isinstance(raw, dict):
+                    continue
+                # Skip nested env/headers-only tables under Codex TOML.
+                if not any(key in raw for key in ("command", "url", "type", "args", "transport")):
                     continue
                 key = (host, scope, server_id)
                 if key in seen:
@@ -130,13 +170,13 @@ def discover_mcp_entries(home: Optional[Path | str] = None) -> list[dict[str, An
 def _public_server_view(raw: dict) -> dict[str, Any]:
     """Copy only non-secret structural fields needed for npx checks."""
     view: dict[str, Any] = {}
-    for key in ("command", "args", "type", "url", "disabled", "enabled"):
+    for key in ("command", "args", "type", "url", "transport", "disabled", "enabled"):
         if key not in raw:
             continue
         value = raw[key]
         if key == "args" and isinstance(value, list):
             view[key] = [str(item) for item in value]
-        elif key in ("command", "type", "url") and isinstance(value, str):
+        elif key in ("command", "type", "url", "transport") and isinstance(value, str):
             view[key] = value
         elif key in ("disabled", "enabled") and isinstance(value, bool):
             view[key] = value

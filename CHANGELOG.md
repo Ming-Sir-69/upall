@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.2 — 2026-11-15
+
+- **2 重试/刷新**：有失败则只重试失败项；全部正常时按 2 会重新检查（含 MCP/Skill）。
+- **设置立即生效**：4 设置里开关监测类型后立刻重建主表并重检（不再等下次启动）。
+- **主表识别 MCP/Skill**：开启对应监测后，MCP/Skill 作为 Agent 分组行显示（对齐 CC Switch「先列出来再检查」）。补扫 `~/.kimi-code/mcp.json`、Codex `config.toml` 的 `mcp_servers` 等路径，修复 Playwright 等 npx MCP 漏检。
+
 ## 0.15.1 — 2026-11-15
 
 - TUI key **4 / S** opens a settings panel: toggle monitor kinds (runtime / plugin / skill / mcp), inspect this run’s hidden MCP/Skill layer status, save to `~/.config/upall/monitors.json`. Enter/0/Esc returns to the main list without quitting. Home screen stays thin; the footer advertises `4 设置`.
