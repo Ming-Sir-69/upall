@@ -468,6 +468,11 @@ class Engine:
             if paths:
                 records = overlays.snapshot(paths, self.state_dir / "preserve" / role)
             self.install_one(role)
+            if role == "kimi-webbridge" and "skill" in getattr(self.args, "monitors", ()):
+                try:
+                    self.sync_webbridge_skills(role)
+                except Exception as error:
+                    self.log(role, f"WebBridge skill 同步跳过：{clean(str(error))[:200]}")
         finally:
             try:
                 if records:
@@ -758,13 +763,79 @@ class Engine:
                 self.update(role, status="CANCELLED", detail="用户已停止")
             self.update(role, ended=time.monotonic())
 
+    def webbridge_skill_source(self, role):
+        """Prefer the upgraded vendor copy (usually ~/.kimi-code/skills/…) as sync source."""
+        candidates = []
+        for item in (self.meta.get(role) or {}).get("skills", []):
+            if not isinstance(item, dict):
+                continue
+            path = Path(str(item.get("path", "")))
+            if path.is_dir() and (path / "SKILL.md").is_file() and not path.is_symlink():
+                candidates.append(path)
+        home = Path.home()
+        ranked = [
+            home / ".kimi-code/skills/kimi-webbridge",
+            home / ".kimi-code/skills/webbridge",
+            *candidates,
+        ]
+        for path in ranked:
+            if path.is_dir() and (path / "SKILL.md").is_file() and not path.is_symlink():
+                return path
+        return None
+
+    def sync_webbridge_skills(self, role):
+        """After a confirmed WebBridge upgrade, align copied skill trees (never symlinks)."""
+        from .layers import apply_sync_plan, plan_webbridge_sync
+        source = self.webbridge_skill_source(role)
+        plan = plan_webbridge_sync(source=source)
+        if source is not None:
+            self.log(role, f"WebBridge skill 同步源 {source}")
+        if not plan.needs_sync:
+            self.log(role, "WebBridge skill 多宿主副本已一致")
+            return
+        updated = apply_sync_plan(plan, confirm=True)
+        self.log(role, f"WebBridge skill 已同步 {len(updated)} 处副本（软链未改）")
+
+    def layer_report(self):
+        """Read-only MCP / Skill layer snapshots for JSON; never installs."""
+        monitors = set(getattr(self.args, "monitors", ()) or ())
+        if self.args.demo or not monitors:
+            return {}
+        layers = {}
+        if "mcp" in monitors:
+            try:
+                from .layers import iter_mcp_checks
+                layers["mcp"] = iter_mcp_checks(
+                    fetch_latest=self.mode != "inventory")
+            except Exception as error:
+                layers["mcp"] = [{"status": "unknown", "reason": clean(str(error))[:200]}]
+        if "skill" in monitors:
+            try:
+                from .layers import check_webbridge_skills, plan_webbridge_sync
+                installs = check_webbridge_skills()
+                plan = plan_webbridge_sync(installs)
+                layers["skills"] = {
+                    "installs": [item.as_dict() for item in installs],
+                    "plan": plan.as_dict(),
+                    "needs_sync": plan.needs_sync,
+                }
+            except Exception as error:
+                layers["skills"] = {"error": clean(str(error))[:200]}
+        return layers
+
     def report(self):
-        return {"schema": 1, "mode": self.mode, "demo": self.args.demo,
+        monitors = sorted(getattr(self.args, "monitors", ()) or ())
+        data = {"schema": 1, "mode": self.mode, "demo": self.args.demo,
                 "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
                 "elapsed": round((self.finished or time.monotonic()) - self.started, 2),
                 "log_dir": str(self.log_dir), "groups": GROUPS,
+                "monitors": monitors,
                 "inventory": [item.public() for item in self.installations.values() if isinstance(item, Installation)],
                 "jobs": [dict(asdict(job), elapsed=round(job.elapsed(), 2)) for job in self.snapshot()]}
+        layers = self.layer_report()
+        if layers:
+            data["layers"] = layers
+        return data
 
     def save(self):
         report = self.report()

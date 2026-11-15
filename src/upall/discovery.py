@@ -18,6 +18,12 @@ TOOLS = {
 GROUPS = {"cli": "AI 编程工具", "agent": "Agent 插件与技能", "app": "效率与维护", "host": "本机项目"}
 ROLE_GROUPS = {"kimi-cu": "agent", "kimi-webbridge": "agent", "iphone-use": "agent",
                "agent-desktop": "agent", "mole": "app", "cc-switch": "app"}
+# Monitor kinds are orthogonal to GROUPS: filter what to check, not how it is listed.
+# Defaults keep today's CLI/agent/app checks (runtime) plus future skill/mcp; plugin stays off.
+MONITORS = {"runtime": "编程工具本体", "plugin": "宿主插件", "skill": "Skill", "mcp": "MCP"}
+DEFAULT_MONITORS = frozenset({"runtime", "skill", "mcp"})
+# Built-ins default to runtime; layer roles (skill/mcp) and host tools set monitor explicitly.
+ROLE_MONITORS = {}
 # macOS app bundles that UPALL replaces from the vendor's own package after
 # signature checks: (bundle name, bundle id, launchd service to restart).
 APP_BUNDLES = {"kimi-cu": ("KimiCU", "ai.kimi.cu", "ai.kimi.cu.service"),
@@ -59,6 +65,7 @@ class Installation:
     reason: str = ""
     label: str = ""
     group: str = "cli"
+    monitor: str = "runtime"
     spec: dict = field(default_factory=dict)
     preserve: list = field(default_factory=list)
 
@@ -66,6 +73,9 @@ class Installation:
         self.label = self.label or TOOLS.get(self.role, self.role)
         if not self.spec:
             self.group = ROLE_GROUPS.get(self.role, self.group)
+            self.monitor = ROLE_MONITORS.get(self.role, self.monitor)
+        if self.monitor not in MONITORS:
+            self.monitor = "runtime"
 
     @property
     def installed(self):

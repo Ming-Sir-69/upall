@@ -24,6 +24,21 @@ Discovery checks PATH and bounded common installation directories, plus explicit
 
 Tools are shown in groups: AI 编程工具 (cli), Agent 插件与技能 (agent), 效率与维护 (app) and 本机项目 (host). `upall agent` or `upall -g app` limits a batch to one group.
 
+### Monitor kinds (orthogonal to groups)
+
+Display groups are not the same as monitor kinds. Monitors select *what kind of capability* to check:
+
+| Kind | Meaning | Default |
+|---|---|---|
+| `runtime` | Programming-tool binaries themselves | on |
+| `plugin` | Host-extension plugins (placeholder this iteration) | off |
+| `skill` | Skill sync / fingerprint checks | on |
+| `mcp` | MCP cache / registry checks | on |
+
+CLI: `upall --monitor runtime,skill,mcp` (comma-separated, repeatable). Combine with `-g/--group` when both filters are useful. Defaults come from `~/.config/upall/monitors.json` (`{"enabled":["runtime","skill","mcp"]}`), or a `monitors` field in the host tools JSON; missing config uses the AI default set above. Host tool entries may set `"monitor": "runtime"` (or another kind).
+
+The default TUI stays check-first and thin: monitor toggles are not dumped onto the home screen. Advanced kinds stay discoverable via `--monitor` and this doc (Sony-camera logic). Missing tools stay missing; discovery never installs.
+
 Unknown provenance and project-local dependencies are manual. A discovered executable that cannot run is a query failure rather than an instruction to reinstall. Source package aliases do not automatically migrate between namespaces.
 
 ## Network and execution
@@ -39,7 +54,8 @@ Unknown provenance and project-local dependencies are manual. A discovered execu
 - Cursor Agent native: invoke `about --format json` for `cliVersion` / `latestVersion`, then `update`.
 - KimiCU: read https://cdn.kimi.com/kimi-computer-use/latest/version.json; during an update download that package only from cdn.kimi.com, require its sha256, a strict code signature and the same Developer ID team as both the manifest and the installed copy, swap the bundle (previous copy kept under the state root's backups/), then restart its launchd service.
 - CC Switch: read the GitHub latest release of farion1231/cc-switch; download its -macOS.zip from github.com, verify its published sha256 when present, require a strict signature from the installed copy's team, quit the running app politely, swap the bundle and reopen it in the background.
-- Kimi WebBridge: read `kimi-webbridge status` (daemon version, update_available, version_mismatch pairing with the browser extension) and run `kimi-webbridge upgrade`; skill copies that were symlinks are restored as symlinks afterwards.
+- Kimi WebBridge: read `kimi-webbridge status` (daemon version, update_available, version_mismatch pairing with the browser extension) and run `kimi-webbridge upgrade`; skill copies that were symlinks are restored as symlinks afterwards. When the `skill` monitor is on, a confirmed upgrade also aligns drifted *copied* WebBridge skill trees across hosts (symlinks / self-maintained trees stay untouched).
+- MCP / Skill layers (`upall.layers`): with monitors `mcp` / `skill` enabled, `report.json` gains a `layers` object — npx MCP cache vs npm registry (check-only, never rewrites MCP config) and WebBridge skill fingerprints / sync plan. Not a TUI switch wall; discover via `--monitor` and JSON.
 - iPhone Use: `iphone-use upgrade --json` to check and `iphone-use upgrade` to apply.
 - Mole: newest V<x.y.z> GitHub release of tw93/Mole (prereleases and platform tags ignored); `mo update` for script installs, brew upgrade for Homebrew.
 - MiniMax script: download https://filecdn.minimax.chat/public/install.sh; retain the detected install root and suppress persistent PATH edits.

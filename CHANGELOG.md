@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.0 — 2026-11-15
+
+- Add monitor kinds orthogonal to display groups: `runtime` / `plugin` / `skill` / `mcp`. Defaults keep the AI set on (`runtime`+`skill`+`mcp`) and leave `plugin` off. Filter with `--monitor`; optional `~/.config/upall/monitors.json` or a `monitors` field in host tools JSON. The TUI stays thin — no home-screen toggle wall.
+- Add read-only MCP layer (`upall.layers.mcp`): discover local MCP configs, compare npx cache versions to the npm registry, never execute installs or rewrite configs. Results appear under `layers.mcp` in the JSON report when the `mcp` monitor is enabled.
+- Add Skill layer (`upall.layers.skills`): fingerprint vendor WebBridge skill copies across hosts (no invented semver). After a confirmed Kimi WebBridge upgrade, align drifted copied trees; symlinks stay symlinks. Check/plan data under `layers.skills` when the `skill` monitor is enabled.
+
 ## 0.14.1 — 2026-11-15
 
 - Fix missed Kimi Code releases when the native download site's `latest` marker trails the official npm channel. Query the official package metadata without requiring npm, validate the matching native platform manifest, and pass the exact checked version and detected install directory to the official installer.

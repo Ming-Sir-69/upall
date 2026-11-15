@@ -8,12 +8,27 @@ import signal
 import sys
 import time
 from . import __version__
-from .discovery import TOOLS, DEMO_ROLES, GROUPS, SOURCE_LABELS, discover
+from .discovery import TOOLS, DEMO_ROLES, DEFAULT_MONITORS, GROUPS, MONITORS, SOURCE_LABELS, discover
 from .engine import Engine
 from . import hosttools
 from .status import ACTIVE, FAILED, LABELS
 from .terminal import Terminal, supports_unicode
 from .util import fit, private_directory, state_root
+
+
+def parse_monitor_args(values):
+    """Expand --monitor runtime,skill (repeatable) into a frozenset of kinds."""
+    if not values:
+        return None
+    kinds = []
+    for value in values:
+        kinds.extend(part.strip() for part in value.split(",") if part.strip())
+    unknown = set(kinds) - set(MONITORS)
+    if unknown:
+        raise ValueError("未知监测类型：" + ", ".join(sorted(unknown)))
+    if not kinds:
+        raise ValueError("请至少指定一种监测类型")
+    return frozenset(kinds)
 
 
 def plain(engine):
@@ -45,13 +60,35 @@ def plain(engine):
                 print("  " + job.path + (" · " + job.detail if job.detail else ""))
 
 
+def layer_hint(engine):
+    """One discoverable line for MCP/Skill layer findings (not a TUI switch wall)."""
+    try:
+        report = json.loads((engine.log_dir / "report.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        report = {}
+    layers = report.get("layers") or {}
+    bits = []
+    mcp = layers.get("mcp")
+    if isinstance(mcp, list):
+        outdated = sum(1 for item in mcp if isinstance(item, dict) and item.get("status") == "outdated")
+        if outdated:
+            bits.append(f"MCP {outdated} 项可更新")
+    skills = layers.get("skills")
+    if isinstance(skills, dict) and skills.get("needs_sync"):
+        bits.append("Skill 多宿主副本不一致")
+    if not bits:
+        return ""
+    return " · " + "；".join(bits) + "（见 report.json layers / --monitor）"
+
+
 def summary(engine, log_dir):
     """Static end-of-run digest that stays in the scrollback after the TUI exits."""
     jobs = engine.snapshot()
     total = int((engine.finished or time.monotonic()) - engine.started)
     failed = sum(job.status in FAILED for job in jobs)
+    hint = layer_hint(engine)
     if not failed:
-        print(f"UPALL · 完成 {len(jobs)} 项 · 失败 0 项 · 总耗时 {total}s · 日志 {log_dir}")
+        print(f"UPALL · 完成 {len(jobs)} 项 · 失败 0 项 · 总耗时 {total}s · 日志 {log_dir}{hint}")
         return
     marks = ({"bad": "×", "done": "✓", "wait": "!", "skip": "–"} if supports_unicode()
              else {"bad": "x", "done": "+", "wait": "!", "skip": "-"})
@@ -65,7 +102,7 @@ def summary(engine, log_dir):
              [(job, marks["wait"], "93") for job in jobs if job.status in {"AVAILABLE", "MANUAL", "AHEAD"}] +
              [(job, marks["skip"], "90") for job in jobs if job.status not in FAILED | {"UPDATED", "INSTALLED", "CURRENT", "AVAILABLE", "MANUAL", "AHEAD"}])
     print()
-    print(paint(f"UPALL · 结果摘要 · {len(jobs)} 项 · 失败 {failed} 项 · 总耗时 {total}s", "1"))
+    print(paint(f"UPALL · 结果摘要 · {len(jobs)} 项 · 失败 {failed} 项 · 总耗时 {total}s{hint}", "1"))
     for job, mark, code in order:
         versions = job.current if job.current == job.latest else f"{job.current} → {job.latest}"
         seconds = f" · {int(job.elapsed())}s" if job.elapsed() else ""
@@ -82,6 +119,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="自动发现并检查已安装的 AI 工具、插件与本机项目；空格更新，回车退出。")
     parser.add_argument("tools", nargs="*", metavar="工具", help="工具名或类别名（cli/agent/app/host）；默认处理全部已检测项")
     parser.add_argument("-g", "--group", action="append", choices=list(GROUPS), help="只处理某一类，可重复")
+    parser.add_argument("--monitor", action="append", metavar="类型",
+                        help="监测类型过滤（runtime/plugin/skill/mcp），逗号分隔，可重复；"
+                             "默认读用户配置或 AI 默认集（runtime+skill+mcp，plugin 关）。不进 TUI 开关墙")
     parser.add_argument("--version", action="version", version="upall " + __version__)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("-c", "--check", dest="check", action="store_true", help="检查版本，等待空格更新（默认）")
@@ -96,12 +136,23 @@ def main(argv=None):
     parser.add_argument("--all", action="store_true", help="同时显示未安装候选；未安装项只跳过")
     args = parser.parse_args(argv)
     args.demo = args.demo or os.environ.get("UPALL_TEST_MODE") == "1"
+    try:
+        monitors = parse_monitor_args(args.monitor)
+    except ValueError as error:
+        parser.error(str(error))
     installations = discover(os.environ.get("UPALL_SEARCH_PATH"))
     try:
         host, preserve, hooks = hosttools.load()
     except hosttools.ConfigError as error:
         print(f"upall: 忽略本机配置：{error}", file=sys.stderr)
         host, preserve, hooks = {}, {}, {}
+    if monitors is None:
+        try:
+            monitors = hosttools.load_monitors()
+        except hosttools.ConfigError as error:
+            print(f"upall: 忽略监测配置：{error}", file=sys.stderr)
+            monitors = frozenset(DEFAULT_MONITORS)
+    args.monitors = frozenset(monitors)
     installations.update(host)  # host definitions override built-ins with the same id
     groups = set(args.group or ()) | {name for name in args.tools if name in GROUPS}
     args.tools = [name for name in args.tools if name not in GROUPS]
@@ -130,12 +181,19 @@ def main(argv=None):
                                                   if item.installed])
         if groups:
             roles = [role for role in roles if installations[role].group in groups]
+        roles = [role for role in roles if installations[role].monitor in monitors]
         roles.sort(key=lambda role: order[role])
         if args.retry:
             try:
                 previous = json.loads((log_dir / "report.json").read_text())
                 candidates = args.tools or list(installations)
-                roles = [job["role"] for job in previous["jobs"] if job["role"] in candidates and job["status"] in FAILED]
+                roles = [job["role"] for job in previous["jobs"]
+                         if job["role"] in candidates and job["status"] in FAILED]
+                # Re-apply the same filters as a normal run (retry must not widen scope).
+                roles = [role for role in roles if role in installations
+                         and installations[role].monitor in monitors]
+                if groups:
+                    roles = [role for role in roles if installations[role].group in groups]
             except (OSError, ValueError, KeyError, TypeError):
                 print("没有可读取的上次结果；请先运行 upall。", file=sys.stderr)
                 return 2
