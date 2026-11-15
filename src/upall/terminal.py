@@ -8,7 +8,8 @@ import sys
 import termios
 import time
 import tty
-from .discovery import GROUPS
+from .discovery import DEFAULT_MONITORS, GROUPS, MONITORS
+from . import hosttools
 from .status import ACTIVE, FAILED, LABELS
 from .util import fit, tail, width
 
@@ -75,6 +76,10 @@ class Terminal:
         self.logs_touched = False
         self.offset = 0
         self.hint = ""
+        self.panel = None  # None | "settings" — advanced modules stay off the home list
+        self.settings_index = 0
+        monitors = set(getattr(engine.args, "monitors", ()) or ()) or set(DEFAULT_MONITORS)
+        self.draft_monitors = monitors
         self.color = "NO_COLOR" not in os.environ
         self.tick = 0
         self.unicode = supports_unicode()
@@ -83,6 +88,7 @@ class Terminal:
         self.icons = ({"failed": "×", "manual": "!", "available": "↑", "done": "✓", "skipped": "–"}
                       if self.unicode else
                       {"failed": "x", "manual": "!", "available": "^", "done": "+", "skipped": "-"})
+        self.mark = ({"on": "●", "off": "○"} if self.unicode else {"on": "*", "off": "o"})
         self.pointer = "›" if self.unicode else ">"
         self.rule = "──" if self.unicode else "--"
         self.box = ("╭", "╮", "╰", "╯", "─", "│") if self.unicode else ("+", "+", "+", "+", "-", "|")
@@ -154,7 +160,76 @@ class Terminal:
     def paint(self, text, color):
         return f"\033[{color}m{text}\033[0m" if self.color else text
 
+    def layer_snapshot(self):
+        """Read saved layer findings for the settings panel (no extra network)."""
+        try:
+            import json
+            report = json.loads((self.engine.log_dir / "report.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return {}
+        return report.get("layers") or {}
+
+    def settings_frame(self, cols, rows):
+        """Hidden-power panel: monitor toggles + MCP/Skill status (Sony-camera logic)."""
+        inner = max(1, min(92, cols - 6))
+        kinds = list(MONITORS)
+        index = self.settings_index % len(kinds)
+        on, off = self.mark["on"], self.mark["off"]
+        content = [("UPALL · 设置", "1;96"),
+                   ("监测类型 · 主界面保持精简；这里开关隐藏模块", "90"),
+                   ("", "0")]
+        for i, kind in enumerate(kinds):
+            enabled = kind in self.draft_monitors
+            pointer = self.pointer if i == index else " "
+            label = MONITORS[kind]
+            state = "开" if enabled else "关"
+            default = ""
+            if kind in ("runtime", "skill", "mcp") and enabled:
+                default = " · 默认开"
+            elif kind == "plugin" and not enabled:
+                default = " · 默认关"
+            line = f"{pointer} {on if enabled else off} {label}（{kind}）· {state}{default}"
+            content.append((line, "96" if i == index else ("92" if enabled else "90")))
+        content.append(("", "0"))
+        layers = self.layer_snapshot()
+        content.append((f"{self.rule} 本轮隐藏模块", "1"))
+        mcp = layers.get("mcp")
+        if isinstance(mcp, list):
+            outdated = sum(1 for item in mcp if isinstance(item, dict) and item.get("status") == "outdated")
+            content.append((f"MCP · 已扫描 {len(mcp)} · 可更新 {outdated}",
+                            "93" if outdated else "90"))
+        else:
+            content.append(("MCP · 本轮未写入报告（检查结束后可见）", "90"))
+        skills = layers.get("skills")
+        if isinstance(skills, dict) and "error" not in skills:
+            drift = "有漂移" if skills.get("needs_sync") else "一致"
+            count = len(skills.get("installs") or [])
+            content.append((f"Skill · WebBridge 副本 {count} · {drift}",
+                            "93" if skills.get("needs_sync") else "90"))
+        else:
+            content.append(("Skill · 本轮未写入报告（检查结束后可见）", "90"))
+        content.append(("插件 · 占位（默认关，开了也只影响过滤）", "90"))
+        content.append(("", "0"))
+        if self.hint:
+            content.append((self.hint, "93"))
+        else:
+            content.append(("空格/1 开关 · 回车/0/Esc 返回 · 下次 upall 生效", "90"))
+        content.append(("S/4 也可关闭本页", "90"))
+        limit = max(1, rows - 3)
+        if len(content) > limit:
+            content = content[:max(0, limit - 1)] + [content[-1]]
+        top_left, top_right, bottom_left, bottom_right, horizontal, vertical = self.box
+        border = horizontal * (inner + 2)
+        lines = [self.paint(top_left + border + top_right, "90")]
+        for text, color in content:
+            body = self.paint(fit(text, inner), color)
+            lines.append(self.paint(vertical + " ", "90") + body + self.paint(" " + vertical, "90"))
+        lines.append(self.paint(bottom_left + border + bottom_right, "90"))
+        return lines
+
     def frame(self, cols, rows):
+        if self.panel == "settings":
+            return self.settings_frame(cols, rows)
         jobs = self.engine.snapshot()
         self.selected %= len(jobs)
         inner = max(1, min(92, cols - 6))
@@ -266,11 +341,13 @@ class Terminal:
         else:
             content.append(("正在并行检查版本" if self.engine.mode == "check" else "正在并行检查和更新", "90"))
         if ended:
-            actions = "空格/1 更新 · 2 重试 · 3 日志 · ↑↓ 选择"
+            actions = "空格/1 更新 · 2 重试 · 3 日志 · 4 设置" if inner >= 36 else "空格/1 · 2 · 3 · 4 设置"
             content.append((actions, "90"))
             content.append(("回车/0 返回终端 · Esc 退出" if inner >= 26 else "回车/0 退出", "90"))
         else:
-            help_text = "↑↓ 选择 · 3 日志 · Ctrl-C 停止" if inner >= 34 else "3 日志 · Ctrl-C 停止" if inner >= 20 else "Ctrl-C 停止"
+            help_text = ("↑↓ 选择 · 3 日志 · 4 设置 · Ctrl-C 停止" if inner >= 40
+                         else "3 日志 · 4 设置 · Ctrl-C" if inner >= 28
+                         else "Ctrl-C 停止")
             content.append((help_text, "90"))
         if rows < 12:
             content = [content[0], content[2],
@@ -309,11 +386,64 @@ class Terminal:
         sys.stdout.flush()
         self.tick += 1
 
+    def toggle_settings(self):
+        if self.panel == "settings":
+            self.panel = None
+            self.hint = ""
+            return
+        self.panel = "settings"
+        self.settings_index = 0
+        self.draft_monitors = set(getattr(self.engine.args, "monitors", ()) or ()) or set(DEFAULT_MONITORS)
+        self.hint = ""
+
+    def close_settings(self):
+        if self.panel == "settings":
+            self.panel = None
+            self.hint = ""
+            return True
+        return False
+
+    def toggle_draft_monitor(self):
+        kinds = list(MONITORS)
+        kind = kinds[self.settings_index % len(kinds)]
+        if kind in self.draft_monitors:
+            if len(self.draft_monitors) <= 1:
+                self.hint = "至少保留一种监测类型"
+                return
+            self.draft_monitors.remove(kind)
+        else:
+            self.draft_monitors.add(kind)
+        try:
+            saved = hosttools.save_monitors(self.draft_monitors)
+            self.draft_monitors = set(saved)
+            self.engine.args.monitors = frozenset(saved)
+            self.hint = f"已保存 · {MONITORS[kind]} 已{'开' if kind in saved else '关'} · 下次 upall 生效"
+        except hosttools.ConfigError as error:
+            self.hint = str(error)
+
     def key(self, key):
-        key = key.translate(str.maketrans("０１２３　", "0123 "))
+        key = key.translate(str.maketrans("０１２３４　", "01234 "))
         jobs = self.engine.snapshot()
         if key in ("\x03", "\x04"):
             self.engine.stop.set()
+            return True
+        if self.panel == "settings":
+            kinds = list(MONITORS)
+            if key in ("\x1b[A", "\x1bOA", "k", "K"):
+                self.settings_index = (self.settings_index - 1) % len(kinds)
+                self.hint = ""
+            elif key in ("\x1b[B", "\x1bOB", "j", "J", "\t"):
+                self.settings_index = (self.settings_index + 1) % len(kinds)
+                self.hint = ""
+            elif key.lower() in (" ", "1"):
+                self.toggle_draft_monitor()
+            elif key.lower() in ("4", "s"):
+                self.toggle_settings()
+            elif key.lower() in ("\r", "\n", "0", "\x1b", "q", "x"):
+                self.close_settings()
+            return True
+        if key.lower() in ("4", "s"):
+            self.toggle_settings()
         elif key in ("\x1b[A", "\x1bOA", "k", "K"):
             self.selected = (self.selected - 1) % len(jobs)
             self.offset = 0

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.15.1 — 2026-11-15
+
+- TUI key **4 / S** opens a settings panel: toggle monitor kinds (runtime / plugin / skill / mcp), inspect this run’s hidden MCP/Skill layer status, save to `~/.config/upall/monitors.json`. Enter/0/Esc returns to the main list without quitting. Home screen stays thin; the footer advertises `4 设置`.
+
 ## 0.15.0 — 2026-11-15
 
 - Add monitor kinds orthogonal to display groups: `runtime` / `plugin` / `skill` / `mcp`. Defaults keep the AI set on (`runtime`+`skill`+`mcp`) and leave `plugin` off. Filter with `--monitor`; optional `~/.config/upall/monitors.json` or a `monitors` field in host tools JSON. The TUI stays thin — no home-screen toggle wall.

@@ -37,7 +37,7 @@ Display groups are not the same as monitor kinds. Monitors select *what kind of 
 
 CLI: `upall --monitor runtime,skill,mcp` (comma-separated, repeatable). Combine with `-g/--group` when both filters are useful. Defaults come from `~/.config/upall/monitors.json` (`{"enabled":["runtime","skill","mcp"]}`), or a `monitors` field in the host tools JSON; missing config uses the AI default set above. Host tool entries may set `"monitor": "runtime"` (or another kind).
 
-The default TUI stays check-first and thin: monitor toggles are not dumped onto the home screen. Advanced kinds stay discoverable via `--monitor` and this doc (Sony-camera logic). Missing tools stay missing; discovery never installs.
+The default TUI stays check-first and thin: monitor toggles are not dumped onto the home list. Press **4 / S** for the settings panel (toggle kinds, see MCP/Skill layer status for this run). Also discoverable via `--monitor` and this doc (Sony-camera logic). Changes saved to `monitors.json` apply on the next `upall` launch. Missing tools stay missing; discovery never installs.
 
 Unknown provenance and project-local dependencies are manual. A discovered executable that cannot run is a query failure rather than an instruction to reinstall. Source package aliases do not automatically migrate between namespaces.
 

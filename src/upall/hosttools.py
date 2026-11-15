@@ -32,6 +32,7 @@ import re
 import stat
 
 from .discovery import DEFAULT_MONITORS, GROUPS, MONITORS, TOOLS, Installation
+from .util import atomic
 
 ID = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 
@@ -140,6 +141,31 @@ def load_monitors(path=None, tools_config=None):
         if "monitors" in data:
             return _parse_enabled_monitors(data["monitors"], f"{tools_path} monitors")
     return frozenset(DEFAULT_MONITORS)
+
+
+def save_monitors(enabled, path=None):
+    """Persist enabled monitor kinds to monitors.json (owner-only, 0600).
+
+    Isolated runs (UPALL_SEARCH_PATH without UPALL_MONITORS_CONFIG) cannot write.
+    """
+    enabled = frozenset(enabled)
+    if not enabled:
+        raise ConfigError("至少开启一种监测类型")
+    unknown = enabled - set(MONITORS)
+    if unknown:
+        raise ConfigError("未知监测类型：" + ", ".join(sorted(unknown)))
+    target = Path(path).expanduser() if path is not None else monitors_path()
+    if target is None:
+        raise ConfigError("隔离运行无法写入监测配置；请设置 UPALL_MONITORS_CONFIG")
+    target = target.absolute()
+    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if target.exists():
+        _owner_only(target)
+    payload = {"enabled": [kind for kind in MONITORS if kind in enabled]}
+    atomic(target, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    os.chmod(target, 0o600)
+    _owner_only(target)
+    return frozenset(payload["enabled"])
 
 
 def load(path=None):

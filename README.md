@@ -42,14 +42,15 @@ To remove the commands, run uv tool uninstall upall-cli. To update UPALL itself,
 | Key | Action |
 |---|---|
 | Space / 1 / U | Update tools with an available update |
-| Enter / 0 / Esc / Q / X | Exit after the current batch finishes |
+| Enter / 0 / Esc / Q / X | Exit after the current batch finishes (from settings, return to the main view first) |
 | 2 / R | Retry failed tools |
 | 3 / L | Toggle the selected tool's log |
-| Up / Down, J / K, Tab | Select a tool |
+| 4 / S | Open settings: toggle monitor kinds and inspect this run’s hidden MCP/Skill modules |
+| Up / Down, J / K, Tab | Select a tool (or a monitor kind in settings) |
 | [ / ] | Scroll the log |
 | Ctrl-C | Stop this batch and its child process groups |
 
-Full-width ０１２３ and the full-width space are supported. Update keys pressed during a running batch are not queued. Number-key hints keep the same mapping after completion.
+Full-width ０１２３４ and the full-width space are supported. Update keys pressed during a running batch are not queued. Number-key hints keep the same mapping after completion.
 
 An IME may consume a key while composing text or selecting a candidate. PTY tests validate the input that reaches the terminal, not every IME.
 

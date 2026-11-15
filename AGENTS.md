@@ -1,6 +1,6 @@
 # UPALL development
 
-- Preserve the default contract: discover and check automatically, Space/1 updates available items, Enter/0 exits, 2 retries failures, 3 toggles logs. Support full-width aliases and existing letter keys.
+- Preserve the default contract: discover and check automatically, Space/1 updates available items, Enter/0 exits, 2 retries failures, 3 toggles logs, 4/S opens the settings panel (monitor kinds / hidden modules). In settings, Enter/0/Esc returns to the main view without quitting. Support full-width aliases and existing letter keys.
 - Runtime dependencies stay in the Python standard library. macOS is the tested platform; do not claim untested native Windows support.
 - Never run real software installations, updates, or desktop input automation as part of tests. Use isolated fixtures and PTYs. Read-only live version checks are allowed.
 - Preserve installation provenance: use the detected executable, package and manager prefix. Unknown/local installs require manual handling; missing tools must stay missing.
