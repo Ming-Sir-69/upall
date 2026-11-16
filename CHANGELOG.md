@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Make the Chinese README the default, add the matching English README and retain the old Chinese link as a forwarding page.
+- Add theme-aware illustrated covers, references, related work and explicit MCP/Skill boundaries; include documentation assets in source distributions. Runtime behavior and version remain unchanged.
+
 ## 0.15.3 — 2026-11-15
 
 - **结构扫描、只显示已安装**：MCP/Skill 按配置/目录结构与特征值发现，不再硬编码路径表。未安装（禁用、缺失二进制、空 skill 根）不进主表；相同 fingerprint / skill 名跨 host 合并为一行，label 列出 hosts。
