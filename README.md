@@ -1,26 +1,35 @@
-# UPALL
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="readme-assets/cover-zh-dark.png">
+  <img src="readme-assets/cover-zh-light.png" alt="UPALL · 检查 AI 工具链，按需逐层更新" width="100%">
+</picture>
 
-[简体中文](README.zh-CN.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+<p align="center"><a href="docs/adapters.md">适配器</a> · <a href="docs/development.md">开发</a> · <a href="CONTRIBUTING.md">贡献</a> · <a href="https://github.com/Ming-Sir-69">作者主页</a></p>
 
-Discover installed AI CLIs, check their versions, and update only when you choose.
+<p align="center">
+<img alt="license MIT" src="https://img.shields.io/badge/license-MIT-F6C555?style=flat-square&labelColor=2E2A26">
+<img alt="python 3.11%2B" src="https://img.shields.io/badge/python-3.11%2B-6B655C?style=flat-square&labelColor=2E2A26">
+<img alt="version 0.15.3" src="https://img.shields.io/badge/version-0.15.3-6B655C?style=flat-square&labelColor=2E2A26">
+<img alt="platform macOS" src="https://img.shields.io/badge/platform-macOS-A8A196?style=flat-square&labelColor=2E2A26">
+</p>
 
-**Check automatically → Space to update → Enter to exit.**
+<p align="center"><b>简体中文</b> · <a href="README.en.md">English</a></p>
 
-UPALL has a Chinese-first terminal UI, handles full-width number keys, shows per-tool logs, and adapts to narrow terminals. It uses Python's standard library at runtime.
+# UPALL · AI 工具链检查与按需更新
 
-It is an extracted module from a larger private workspace. This repository owns reusable behavior; the host project owns its configuration, shortcuts, private records and pinned dependency version. See [module integration](docs/module-integration.md) before adopting it into a larger project.
+本项目检测已安装的 AI CLI、Agent 工具和维护应用，检查版本，并在明确操作后更新受支持的安装。Skill 与 MCP 监测扩展到跨宿主清单；MCP 只读检查。中文优先的终端界面在运行时只依赖 Python 标准库。
 
-![Demo with simulated version numbers](assets/demo.png)
+## 主要功能
 
-## Status
+- 自动检查；空格/1 更新有新版的项目，回车/0 退出。
+- 保留检测到的安装来源与包管理器前缀；缺少的工具保持未安装。
+- 提供同屏日志、窄终端适配和全角按键。
+- 开启的 MCP/Skill 监测进入主表。MCP 比较 npx 缓存元数据；厂商 WebBridge 升级成功后可同步 Skill 副本。通用插件适配尚未实现。
 
-Version 0.1.x is an early macOS release. The UI and integration tests run on macOS; other POSIX environments are experimental. Native Windows is not supported. There are no claims of universal package-manager support.
+![演示数据，非实时版本](assets/demo.png)
 
-## Try it
+## 快速开始
 
-Requires Python 3.11+.
-
-Run directly from a checkout without installing:
+需要 Python 3.11 及以上。可直接从检出目录运行，无需安装：
 
 ~~~sh
 git clone https://github.com/Ming-Sir-69/upall.git
@@ -28,72 +37,80 @@ cd upall
 python3 tools/upall --demo
 ~~~
 
-Install an isolated command using [uv](https://docs.astral.sh/uv/guides/tools/):
+使用 uv 安装到独立工具环境。<sup>[[2]](#参考文献)</sup>
 
 ~~~sh
 uv tool install git+https://github.com/Ming-Sir-69/upall.git
 upall
 ~~~
 
-To remove the commands, run uv tool uninstall upall-cli. To update UPALL itself, run uv tool upgrade upall-cli. UPALL does not update itself in the tool dashboard.
+更新 UPALL 本身用 `uv tool upgrade upall-cli`；卸载用 `uv tool uninstall upall-cli`。工具面板不更新 UPALL 自身。
 
-## Controls
+## 用法
 
-| Key | Action |
+| 按键 | 功能 |
 |---|---|
-| Space / 1 / U | Update tools with an available update |
-| Enter / 0 / Esc / Q / X | Exit after the current batch finishes (from settings, return to the main view first) |
-| 2 / R | Retry failed tools |
-| 3 / L | Toggle the selected tool's log |
-| 4 / S | Open settings: toggle monitor kinds and inspect this run’s hidden MCP/Skill modules |
-| Up / Down, J / K, Tab | Select a tool (or a monitor kind in settings) |
-| [ / ] | Scroll the log |
-| Ctrl-C | Stop this batch and its child process groups |
+| 空格 / 1 / U | 更新有新版的工具 |
+| 回车 / 0 / Esc / Q / X | 当前任务结束后退出；设置页内先返回主界面 |
+| 2 / R | 重试失败项；无失败则刷新全部检查，含 MCP/Skill |
+| 3 / L | 显示或隐藏所选工具日志 |
+| 4 / S | 打开设置，切换监测类型；变更后立即重建主表并重检 |
+| ↑↓、J/K、Tab | 选择工具，或设置页内的监测类型 |
+| [ / ] | 滚动日志 |
+| Ctrl-C | 停止本任务及其子进程组 |
 
-Full-width ０１２３４ and the full-width space are supported. Update keys pressed during a running batch are not queued. Number-key hints keep the same mapping after completion.
+支持全角 ０１２３４ 和全角空格。运行中按更新键不排队升级；任务完成后数字提示仍保持相同映射。输入法候选窗口可能先处理按键，PTY 测试只验证到达终端的输入，不能覆盖所有输入法。
 
-An IME may consume a key while composing text or selecting a candidate. PTY tests validate the input that reaches the terminal, not every IME.
-
-## Commands
+<details>
+<summary>命令与报告</summary>
 
 ~~~sh
-upall                 # Discover installed CLIs and check; wait for Space
-upall claude codex    # Limit the batch to these tools
-upall agent           # Only one group: cli, agent, app or host (also -g)
-upall --list          # Local inventory, including missing tools
-upall --all           # Include missing candidates; skip, never install them
-upall --json          # Final report; check only and exit
-upall --plain         # Plain output; check only and exit
-upall --retry         # Recheck failures from the previous batch
-upall --update        # Explicitly check AND update, for unattended use
-upall --demo          # Simulated UI; no real updater is invoked
+upall                 # 发现已安装工具并检查，等待空格更新
+upall claude codex    # 只处理指定工具
+upall agent           # 只处理一个分组：cli、agent、app、host；也支持 -g
+upall --list          # 本地清单，包含缺少的候选
+upall --all           # 展示缺少的候选并跳过，不安装
+upall --json          # 最终 JSON；默认只检查并退出
+upall --plain         # 纯文本；默认只检查并退出
+upall --retry         # 重查上轮失败项
+upall --update        # 显式检查并更新，供无人值守调用
+upall --demo          # 模拟界面，不执行真实更新
 ~~~
 
-The upcheck command is a compatibility alias for the same check-first flow. Redirected output, TERM=dumb, JSON and plain mode finish without waiting for a key. A failed update or check returns exit code 1; interrupted batches return 130; invocation/state errors return 2.
+`upcheck` 是同一检查优先流程的兼容入口。重定向输出、`TERM=dumb`、JSON 和纯文本模式结束后不等待按键。检查或更新失败返回 1，中断返回 130，调用或状态错误返回 2。
 
-## Detection and updates
+`upall --monitor runtime,skill,mcp` 按监测类型过滤，与显示分组独立。默认开启 runtime、Skill、MCP，关闭 plugin。设置保存到 `~/.config/upall/monitors.json`。见[纵向层说明](docs/ai-vertical-layers.md)。
 
-The known catalog includes Claude Code, Codex, Kimi Code, Hermes, Gemini CLI, Grok Build, OpenCode, OpenClaw, Pi, MiniMax Code and Cursor Agent (AI 编程工具); KimiCU, Kimi WebBridge, iPhone Use and Agent Desktop (Agent 插件与技能); Mole and CC Switch (效率与维护). Projects you maintain yourself can be added as host-defined tools, and UPALL reports which of your local modifications upstream has already absorbed; see [local modifications](docs/local-modifications.md).
+</details>
 
-- Missing tools stay missing. This is an updater, not an automatic installer.
-- npm and Homebrew installations use the detected package and manager prefix. A command under a Homebrew bin directory can still belong to npm. npm operations try direct networking before the inherited proxy environment.
-- Large downloads use aria2c with eight connections when installed, then a clean curl fallback. Native Claude Code updates keep the detected channel and target version, use the vendor's manifest and optional zstd package, and verify checksums before installation.
-- Known native/script installations use the corresponding official updater or installer.
-- Unknown or project-local installations require manual handling.
-- Installation success is followed by a fresh version check.
-- Checks run concurrently, with at most four workers. Installs sharing an npm prefix or Homebrew are serialized.
+## 设计与原理
 
-See [the support matrix](docs/adapters.md) for adapter boundaries. Tests use fake tools; a fixture passing does not prove every real installation variant works.
+已知目录包含 Claude Code、Codex、Kimi Code、Hermes、Gemini CLI、Grok Build、OpenCode、OpenClaw、Pi、MiniMax Code、Cursor Agent（AI 编程工具）；KimiCU、Kimi WebBridge、iPhone Use、Agent Desktop（Agent 插件与技能）；Mole、CC Switch（效率与维护）。自维护项目可作为本机项目接入；工具会报告本地修改是否已被上游收录，见[本地修改与上游](docs/local-modifications.md)。
 
-## State and privacy
+- 缺少的工具保持未安装。
+- npm 与 Homebrew 使用实际检测到的包及前缀；Homebrew bin 目录中的命令仍可能属于 npm。npm 先尝试直连，再回退继承的代理环境。
+- 大文件优先使用已安装的 aria2c 进行八连接下载，失败后使用干净的 curl 回退。Claude 原生更新保留渠道与目标版本，使用官方清单及可用的 zstd 包，安装前校验哈希。
+- 已知原生或脚本安装调用对应的官方更新器；未知或项目内安装需手动处理。
+- 安装成功后重新检查版本。
+- 版本检查最多四个并发任务；子进程由 Python subprocess 管理。<sup>[[1]](#参考文献)</sup> 同一 npm 前缀或 Homebrew 的安装串行执行。
 
-State defaults to $XDG_STATE_HOME/upall, or ~/.local/state/upall. UPALL uses owner-only directories. Updates/checks use latest/, inventories use inventory/, and demonstrations use demo/latest/. Inventory does not replace the previous update report. Every run is also appended to history.jsonl. Each job's network records include route, downloader, attempt, elapsed time, bytes, throughput and failure reason.
+[适配器说明](docs/adapters.md)列出支持边界。测试使用伪工具；用例通过不代表所有真实安装方式都已验证。
 
-UPALL_LOG_ROOT overrides the state root. UPALL_SEARCH_PATH limits discovery to an explicit search path. NO_COLOR disables color. The tool does not read your API keys, sign-in stores, or conversation history. Reports and logs contain local paths and tool output; redact them before sharing.
+状态默认放在 `$XDG_STATE_HOME/upall` 或 `~/.local/state/upall`，遵循 XDG 状态目录约定。<sup>[[3]](#参考文献)</sup> 目录仅当前用户可访问。检查与更新写入 `latest/`，安装清单写入 `inventory/`，演示写入 `demo/latest/`；清单不覆盖前次更新报告。每次运行追加到 `history.jsonl`。任务网络记录包括线路、下载器、尝试次序、耗时、字节数、速度和失败原因。
 
-Official updates execute third-party software, and an npm update may execute that package's lifecycle scripts. These commands run only after Space/1 or an explicit --update. Review the installation source and use your own account; UPALL never adds sudo.
+`UPALL_LOG_ROOT` 覆盖状态根目录，`UPALL_SEARCH_PATH` 限定发现路径，`NO_COLOR` 禁用颜色。本工具不读取 API 密钥、登录凭据或会话历史。日志和报告包含本机路径与工具输出，分享前需脱敏。
 
-## Development
+官方更新会执行第三方软件，npm 更新可能执行包的生命周期脚本。这些命令仅在按空格/1 或传入 `--update` 后运行；应核对安装来源并使用自己的账户，UPALL 不添加 sudo。
+
+本仓库维护通用实现；接入项目负责配置、快捷入口、私有记录和固定依赖版本。见[模块集成](docs/module-integration.md)和[规范与实践对照](docs/standards.md)。
+
+## 局限
+
+当前 0.x 版本主要验证 macOS；其他 POSIX 环境仍属实验范围，原生 Windows 不支持。未声称覆盖全部包管理器。
+
+MCP 监测不安装包、不改写宿主固定版本配置。通用插件适配仍为占位。终端演示使用模拟数据；隔离测试不能证明每种真实安装方式均兼容。
+
+## 开发
 
 ~~~sh
 python3 -m venv .venv
@@ -101,17 +118,40 @@ python3 -m venv .venv
 .venv/bin/python -m unittest discover -s tests -v
 ~~~
 
-[Architecture and decisions](docs/development.md) explain the module boundaries and the test policy. [Roadmap](docs/roadmap.md) lists unimplemented directions. See [CHANGELOG](CHANGELOG.md) for released behavior.
+[架构与决策](docs/development.md)说明模块边界与测试政策；[扩展方向](docs/roadmap.md)列出未实现内容；[变更记录](CHANGELOG.md)记录已发布行为。
 
-GitHub Actions is intentionally disabled for this repository. Checks and package validation run locally; the repository has no Pages deployment, Packages publication, or hosted build service configured.
+仓库约定使用本地验证，不添加计量服务。未配置 GitHub Actions 工作流；检查和安装包验证在本地执行，未配置 Pages、Packages 或托管构建服务。发布前用 `uv build` 构建，在干净虚拟环境安装 wheel，并执行 `upall --version` 和 `upall --demo --json`。
 
-## Credits and license
+## 致谢
 
-Interaction ideas were informed by [Topgrade](https://github.com/topgrade-rs/topgrade), [Gum](https://github.com/charmbracelet/gum), [Bubbles](https://github.com/charmbracelet/bubbles), and [Rich](https://github.com/Textualize/rich). Installation-provenance research included [CC Switch](https://github.com/farion1231/cc-switch). UPALL's implementation is original; it does not embed their source.
+交互参考了 [Topgrade](https://github.com/topgrade-rs/topgrade)、[Gum](https://github.com/charmbracelet/gum)、[Bubbles](https://github.com/charmbracelet/bubbles) 和 [Rich](https://github.com/Textualize/rich)；安装来源调研参考了 [CC Switch](https://github.com/farion1231/cc-switch)。实现为原创，未嵌入这些项目的源码。Python 与受支持厂商的更新机制提供运行基础。
 
-[MIT](LICENSE).
+封面插画由图像生成模型生成，经本项目处理。
 
-## Why these conventions
+## 参考文献
 
-[Standards and official practice](docs/standards.md) maps the extraction and host-integration decisions to GitHub, PyPA, uv, XDG and Semantic Versioning sources. It separates formal specifications from project-specific choices.
+1. Python Software Foundation. Python 3.11 documentation: subprocess — Subprocess management. https://docs.python.org/3.11/library/subprocess.html
+2. Astral. uv documentation: Using tools — Installing and upgrading tools. https://docs.astral.sh/uv/guides/tools/
+3. freedesktop.org. XDG Base Directory Specification: Environment variables. https://specifications.freedesktop.org/basedir/latest/
 
+## 相关研究
+
+- [Topgrade 官方仓库](https://github.com/topgrade-rs/topgrade)：与已安装工具发现、调用各自更新机制对应的工程项目。本项目借鉴清单和未安装跳过的交互思路，不将 Topgrade 作为运行依赖。
+
+## 仓库结构
+
+| 路径 | 用途 |
+|---|---|
+| `src/upall/` | 发现、适配器、执行、终端界面与层级监测 |
+| `tests/` | 隔离伪工具与 PTY 测试 |
+| `tools/upall` | 源码运行入口 |
+| `docs/` | 架构、适配器、集成与安全边界 |
+| `readme-assets/` | 中英亮暗封面 |
+| `assets/` | 终端演示 |
+| `pyproject.toml` | 包元数据与命令入口 |
+
+---
+
+文档维护：**✦ EricMingle69** · [Ming-Sir-69](https://github.com/Ming-Sir-69)
+
+许可：[MIT](LICENSE)。
