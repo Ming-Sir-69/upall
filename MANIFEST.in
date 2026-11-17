@@ -4,4 +4,4 @@ recursive-include assets *.png *.svg
 recursive-include tests *.py
 include tools/upall
 include README.en.md
-recursive-include readme-assets *.png
+recursive-include readme-assets *.png *.svg

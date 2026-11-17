@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Replace cover signatures and README footer marks with the theme-aware EM logo; include the SVG assets in source distributions.
+
 - Make the Chinese README the default, add the matching English README and retain the old Chinese link as a forwarding page.
 - Add theme-aware illustrated covers, references, related work and explicit MCP/Skill boundaries; include documentation assets in source distributions. Runtime behavior and version remain unchanged.
 
