@@ -7,6 +7,10 @@
 - Make the Chinese README the default, add the matching English README and retain the old Chinese link as a forwarding page.
 - Add theme-aware illustrated covers, references, related work and explicit MCP/Skill boundaries; include documentation assets in source distributions. Runtime behavior and version remain unchanged.
 
+## 0.15.4 — 2026-11-18
+
+- **npm 全局更新底座**：所有 `npm --global --prefix` 工具共用 `upall.installers.npm_global`（升级前清理 `.<slug>-*` 残留目录与失效 `prefix/bin` 链接，布局冲突时再试一次）。Agent Desktop 的 ENOTEMPTY / 断链升级失败由此消除；Claude / MiniMax 等仅保留 allow-scripts 定制。
+
 ## 0.15.3 — 2026-11-15
 
 - **结构扫描、只显示已安装**：MCP/Skill 按配置/目录结构与特征值发现，不再硬编码路径表。未安装（禁用、缺失二进制、空 skill 根）不进主表；相同 fingerprint / skill 名跨 host 合并为一行，label 列出 hosts。

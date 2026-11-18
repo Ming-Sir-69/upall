@@ -16,6 +16,7 @@ import threading
 import time
 import urllib.parse
 from .discovery import APP_BUNDLES, GROUPS, PACKAGES, Installation, app_info, discover
+from .installers import npm_global
 from .layerjobs import build_mcp_installations, build_skill_installations, is_layer_role
 from .models import Job
 from . import overlay as overlays
@@ -591,14 +592,7 @@ class Engine:
             self.command(role, [found.path, "update", "--yes"], timeout=1200)
             return
         if found.source == "npm":
-            command = [found.manager, "install", "--global", "--prefix", found.prefix,
-                       found.package + "@" + self.jobs[role].latest]
-            if role in ("claude", "mcode", "agent-desktop"):
-                command += ["--ignore-scripts=false", "--include=optional", "--allow-scripts=" +
-                            {"claude": "@anthropic-ai/claude-code", "mcode": "@minimax-ai/code,better-sqlite3",
-                             "agent-desktop": "agent-desktop"}[role]]
-            self.npm_command(role, command, "install", timeout=1200,
-                             extra_env={"PATH": str(Path(found.manager).parent) + os.pathsep + os.environ.get("PATH", "")})
+            self.install_npm(role)
             return
         if role == "kimi":
             version = self.jobs[role].latest
@@ -621,6 +615,27 @@ class Engine:
         else:
             arguments = ["upgrade", "--method", "curl"] if role == "opencode" else ["update"]
             self.command(role, [found.path, *arguments, *(["--yes"] if role == "hermes" else [])], timeout=1200)
+
+    def install_npm(self, role):
+        """Shared npm --global --prefix path: prepare layout, then vendor install."""
+        found = self.installations[role]
+        version = self.jobs[role].latest
+        extra_env = {"PATH": str(Path(found.manager).parent) + os.pathsep + os.environ.get("PATH", "")}
+
+        def run_install():
+            for note in npm_global.prepare(found.prefix, found.package):
+                self.log(role, note)
+            command = npm_global.build_install_command(
+                found.manager, found.prefix, found.package, version, role=role)
+            self.npm_command(role, command, "install", timeout=1200, extra_env=extra_env)
+
+        try:
+            run_install()
+        except CommandError as error:
+            if self.stop.is_set() or not npm_global.is_layout_error(str(error)):
+                raise
+            self.log(role, "npm 布局冲突；清理残留后重试一次")
+            run_install()
 
     def install_claude_native(self, role):
         version = self.jobs[role].latest
