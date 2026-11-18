@@ -7,6 +7,7 @@ The package is intentionally small and uses only Python's standard library at ru
 | discovery.py | Known catalog, executable resolution, package-manager/native provenance |
 | models.py | Job snapshot data |
 | engine.py | Version queries, explicit updater invocation, timeouts, process groups, install locks |
+| installers/ | Shared install backends (`npm_global` today); per-tool options stay in small registries, not role `if` trees |
 | terminal.py | Incremental keyboard decoder, input handling, responsive frame |
 | util.py | Unicode display helpers, sanitized logs, private state and atomic reports |
 | cli.py | Arguments, root lock, mode selection, output and batch lifecycle |
@@ -37,6 +38,8 @@ The implementation originated as a personal macOS shell helper. Git history begi
 ## Adding a tool
 
 Add catalog/package identities and bounded discovery. Define its current-version probe, target-channel query, explicit updater and version verification. Add fixtures for installed/missing/unknown provenance and the update path. Document network endpoints and whether support was tested live or through fixtures. Do not add automatic installation as a fallback.
+
+For another npm `--global --prefix` tool, reuse `installers.npm_global`: put the package in `PACKAGES`, and only add an `NPM_INSTALL_OPTIONS` entry when allow-scripts / optional deps differ. Do not add a new role branch in `install_one` for the same install shape.
 
 Avoid changing compatibility entry points, the default check-first flow or unrelated adapters during a routine addition.
 

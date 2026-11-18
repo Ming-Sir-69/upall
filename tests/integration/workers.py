@@ -41,8 +41,8 @@ elif tool == "codex" and args == ["update"]:
         updated("codex")
 elif tool == "kimi" and args == ["--version"]:
     print(current("kimi"))
-elif tool in ("gemini", "grok", "opencode", "openclaw", "pi", "mcode") and args == ["--version"]:
-    print(current(tool))
+elif tool in ("gemini", "grok", "opencode", "openclaw", "pi", "mcode", "agent-desktop") and args == ["--version"]:
+    print(("agent-desktop " if tool == "agent-desktop" else "") + current(tool))
 elif tool == "cursor-agent" and args == ["about", "--format", "json"]:
     version = current("cursor-agent")
     print(json.dumps({"cliVersion": version, "latestVersion": "1.0.1", "latestStatus": "up_to_date"}))
@@ -66,7 +66,8 @@ elif tool == "npm" and args[:3] == ["install", "--global", "--prefix"]:
     assert Path(args[3]).resolve() == (root / "prefix").resolve()
     if case != "ineffective":
         packages={"@openai/codex":"codex", "@google/gemini-cli":"gemini", "@xai-official/grok":"grok",
-                  "opencode-ai":"opencode", "@earendil-works/pi-coding-agent":"pi", "@minimax-ai/code":"mcode"}
+                  "opencode-ai":"opencode", "@earendil-works/pi-coding-agent":"pi", "@minimax-ai/code":"mcode",
+                  "agent-desktop":"agent-desktop", "openclaw":"openclaw"}
         updated(next(role for package,role in packages.items() if args[4].startswith(package+"@")))
 elif tool == "curl" and any("downloads.claude.ai/claude-code-releases/1.0.1/manifest.json" in arg for arg in args):
     payload = (root / "claude-source").read_bytes()
@@ -150,7 +151,8 @@ def run_case(case, expected, exit_code, args=(), include_claude=False, include_n
             (bin_dir / "cursor-agent").symlink_to(agent)
         if include_npm_tools:
             for role,name in {"gemini":"@google/gemini-cli", "grok":"@xai-official/grok", "opencode":"opencode-ai",
-                              "openclaw":"openclaw", "pi":"@earendil-works/pi-coding-agent", "mcode":"@minimax-ai/code"}.items():
+                              "openclaw":"openclaw", "pi":"@earendil-works/pi-coding-agent", "mcode":"@minimax-ai/code",
+                              "agent-desktop":"agent-desktop"}.items():
                 package=root/"prefix/lib/node_modules"/name
                 package.mkdir(parents=True)
                 (package/"package.json").write_text(json.dumps({"name":name}))
@@ -230,5 +232,5 @@ run_case("current", {"cursor-agent":"CURRENT", **current}, 0, include_cursor_age
 run_case("update", {"cursor-agent":"UPDATED", **dict.fromkeys(current,"UPDATED")}, 0, ("--update",),
          include_cursor_agent=True)
 run_case("update", {"claude":"UPDATED", "cursor-agent":"UPDATED", **dict.fromkeys(current,"UPDATED"),
-         **dict.fromkeys(("gemini","grok","opencode","openclaw","pi","mcode"),"UPDATED")}, 0, ("--update",),
+         **dict.fromkeys(("gemini","grok","opencode","openclaw","pi","mcode","agent-desktop"),"UPDATED")}, 0, ("--update",),
          include_claude=True, include_npm_tools=True, include_cursor_agent=True)
