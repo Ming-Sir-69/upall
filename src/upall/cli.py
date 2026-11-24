@@ -191,7 +191,8 @@ def main(argv=None):
                          if job["role"] in candidates and job["status"] in FAILED]
                 # Re-apply the same filters as a normal run (retry must not widen scope).
                 roles = [role for role in roles if role in installations
-                         and installations[role].monitor in monitors]
+                         and installations[role].monitor in monitors
+                         and (args.all or args.tools or installations[role].installed)]
                 if groups:
                     roles = [role for role in roles if installations[role].group in groups]
             except (OSError, ValueError, KeyError, TypeError):

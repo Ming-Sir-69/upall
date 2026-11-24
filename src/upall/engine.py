@@ -488,6 +488,12 @@ class Engine:
             if not VERSION.fullmatch(version):
                 raise CommandError("未读到有效的最新版本")
             return version
+        if role == "omp" and found.source != "brew":
+            data = self.fetch_json(role, "https://registry.npmjs.org/@oh-my-pi%2fpi-coding-agent/latest")
+            version = data.get("version") if isinstance(data, dict) else None
+            if not isinstance(version, str) or not VERSION.fullmatch(version):
+                raise CommandError("Oh My Pi 发布版本无效")
+            return version
         if role == "kimi" and found.source == "script":
             # The native /latest marker can lag published releases. Read the
             # official npm channel without requiring npm, then ensure the same
@@ -604,6 +610,9 @@ class Engine:
             return
         if role == "openclaw":
             self.command(role, [found.path, "update", "--yes"], timeout=1200)
+            return
+        if role == "omp":
+            self.command(role, [found.path, "update"], timeout=1200)
             return
         if found.source == "npm":
             self.install_npm(role)
@@ -910,7 +919,7 @@ class Engine:
                 self.update(role, status="SKIPPED", detail="未找到可执行命令")
                 return
             if not found.update_supported:
-                self.update(role, status="MANUAL", detail=found.reason)
+                self.update(role, status="MANUAL", current=found.version or "-", detail=found.reason)
                 return
             current = self.current_version(role)
             self.update(role, current=current)

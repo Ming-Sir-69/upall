@@ -159,6 +159,8 @@ def build_install_command(
 ) -> list[str]:
     command = [manager, "install", "--global", "--prefix", str(prefix), f"{package}@{version}"]
     opts = options if options is not None else NPM_INSTALL_OPTIONS.get(role, {})
+    if role == "dsh":
+        command.append("--engine-strict")
     if opts.get("ignore_scripts") is False:
         command.append("--ignore-scripts=false")
     if opts.get("include_optional"):

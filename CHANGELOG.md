@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.0
+
+- Complete discovery coverage of the CC Switch 4.0.40 application catalog. The default screen shows installed tools only.
+
 ## 0.16.0
 
 - Discover Antigravity CLI on PATH and update the detected native macOS or Homebrew installation.
