@@ -6,11 +6,14 @@ from pathlib import Path
 import plistlib
 import shlex
 import shutil
+import subprocess
+import sys
 
 TOOLS = {
     "claude": "Claude Code", "codex": "Codex", "kimi": "Kimi Code", "hermes": "Hermes",
     "gemini": "Gemini CLI", "grok": "Grok Build", "opencode": "OpenCode",
     "openclaw": "OpenClaw", "pi": "Pi", "mcode": "MiniMax Code", "cursor-agent": "Cursor Agent",
+    "antigravity-cli": "Antigravity CLI",
     "kimi-cu": "KimiCU", "kimi-webbridge": "Kimi WebBridge", "iphone-use": "iPhone Use",
     "agent-desktop": "Agent Desktop", "mole": "Mole", "cc-switch": "CC Switch",
 }
@@ -43,6 +46,7 @@ SOURCE_LABELS = {
     "unknown": "来源待确认", "missing": "未安装", "demo": "演示",
 }
 BREW_PACKAGES = {
+    "antigravity-cli": {"antigravity-cli"},
     "claude": {"claude-code", "claude-code@latest"}, "codex": {"codex"},
     "gemini": {"gemini-cli"}, "grok": {"grok"}, "opencode": {"opencode"},
     "openclaw": {"openclaw"}, "pi": {"pi", "pi-coding-agent"}, "mcode": {"minimax-code"}, "mole": {"mole"},
@@ -151,6 +155,22 @@ def classify(role, executable, home=None):
             result.reason = "" if result.update_supported else "未找到该安装对应的 brew"
             return result
 
+    if role == "antigravity-cli" and sys.platform == "darwin":
+        # A custom install directory is valid. Check the signed executable,
+        # not the location or a version string printed by an unknown wrapper.
+        requirement = 'identifier "cli" and anchor apple generic and certificate leaf[subject.OU] = "EQHXZ8M8AV"'
+        try:
+            verified = subprocess.run(
+                ["/usr/bin/codesign", "--verify", "--strict", "-R=" + requirement, str(target)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10,
+            ).returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            verified = False
+        if verified:
+            result.path = str(target)
+            result.source, result.update_supported, result.reason = "native", True, ""
+        return result
+
     if role == "claude" and ".local/share/claude/versions/" in target.as_posix():
         result.source, result.update_supported, result.reason = "native", True, ""
     elif role == "codex" and "/.codex/" in target.as_posix():
@@ -244,7 +264,7 @@ def discover(search_path=None, home=None):
         if role in APP_BUNDLES:
             found[role] = find_app(role, app_dirs)
             continue
-        path = shutil.which(role, path=search_path)
+        path = shutil.which("agy" if role == "antigravity-cli" else role, path=search_path)
         if not path and role == "mole":
             path = shutil.which("mo", path=search_path)
         if not path and role == "cursor-agent":

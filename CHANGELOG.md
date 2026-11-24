@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.16.0
+
+- Discover Antigravity CLI on PATH and update the detected native macOS or Homebrew installation.
 
 - Replace cover signatures and README footer marks with the theme-aware EM logo; include the SVG assets in source distributions.
 

@@ -192,7 +192,7 @@ with tempfile.TemporaryDirectory(prefix="upall-interface-polish-") as tmp:
         with contextlib.redirect_stdout(output):
             upall_cli.summary(engine, Path(tmp))
         text = output.getvalue()
-        assert "结果摘要" not in text and "完成 17 项 · 失败 0 项" in text and "总耗时 7s" in text
+        assert "结果摘要" not in text and f"完成 {len(upall.TOOLS)} 项 · 失败 0 项" in text and "总耗时 7s" in text
     finally:
         engine.pool.shutdown()
 print("PASS: bar state colors, inline log tail, follow hint, failure focus, ASCII fallback, static summary")
