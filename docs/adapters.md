@@ -4,6 +4,7 @@ Discovery checks PATH and bounded common installation directories, plus explicit
 
 | Tool | Known automatic paths |
 |---|---|
+| Antigravity CLI | First agy on PATH; Google-signed macOS binary (official platform manifest and native update) or matching Homebrew package |
 | Claude Code | Official native launcher, matching global npm package, known Homebrew cask |
 | Codex | Matching global npm package, known Homebrew package, identified native path |
 | Kimi Code | Known official script layout |

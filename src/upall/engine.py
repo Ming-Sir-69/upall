@@ -421,6 +421,20 @@ class Engine:
             if state["behind"] == 0:
                 return git("rev-parse", "--short=8", "HEAD")
             return state["upstream"][:8]
+        if role == "antigravity-cli" and found.source == "native":
+            arch = {"arm64": "arm64", "x86_64": "amd64"}.get(platform.machine())
+            if not arch:
+                raise ManualError("此平台的 Antigravity CLI 发布清单尚未支持")
+            base = "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app"
+            url = f"{base}/manifests/darwin_{arch}.json"
+            try:
+                data = self.fetch_json(role, url)
+            except CommandError:
+                data = self.fetch_json(role, url)
+            version = data.get("version") if isinstance(data, dict) else None
+            if not isinstance(version, str) or not VERSION.fullmatch(version):
+                raise CommandError("Antigravity CLI 发布清单缺少有效版本")
+            return version
         if role == "kimi-cu":
             data = self.fetch_json(role, "https://cdn.kimi.com/kimi-computer-use/latest/version.json")
             package = data.get("app" if platform.machine() == "arm64" else "app_x86_64") or {}
