@@ -4,6 +4,9 @@ Discovery checks PATH and bounded common installation directories, plus explicit
 
 | Tool | Known automatic paths |
 |---|---|
+| DeepSeek Harness / GitHub Copilot CLI | Matching global npm package; Copilot also supports its Homebrew cask |
+| Oh My Pi | Matching npm or Bun global package (omp update), or known Homebrew formula |
+| Claude Desktop / WorkBuddy | Installed macOS bundle and executable; show local version, updates managed in the app |
 | Antigravity CLI | First agy on PATH; Google-signed macOS binary (official platform manifest and native update) or matching Homebrew package |
 | Claude Code | Official native launcher, matching global npm package, known Homebrew cask |
 | Codex | Matching global npm package, known Homebrew package, identified native path |

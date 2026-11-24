@@ -13,13 +13,15 @@ TOOLS = {
     "claude": "Claude Code", "codex": "Codex", "kimi": "Kimi Code", "hermes": "Hermes",
     "gemini": "Gemini CLI", "grok": "Grok Build", "opencode": "OpenCode",
     "openclaw": "OpenClaw", "pi": "Pi", "mcode": "MiniMax Code", "cursor-agent": "Cursor Agent",
-    "antigravity-cli": "Antigravity CLI",
+    "antigravity-cli": "Antigravity CLI", "dsh": "DeepSeek Harness",
+    "omp": "Oh My Pi", "copilot": "GitHub Copilot CLI",
+    "claude-desktop": "Claude Desktop", "workbuddy": "WorkBuddy",
     "kimi-cu": "KimiCU", "kimi-webbridge": "Kimi WebBridge", "iphone-use": "iPhone Use",
     "agent-desktop": "Agent Desktop", "mole": "Mole", "cc-switch": "CC Switch",
 }
 # Display groups, in screen order. Host-defined tools pick one of these keys.
 GROUPS = {"cli": "AI 编程工具", "agent": "Agent 插件与技能", "app": "效率与维护", "host": "本机项目"}
-ROLE_GROUPS = {"kimi-cu": "agent", "kimi-webbridge": "agent", "iphone-use": "agent",
+ROLE_GROUPS = {"claude-desktop": "app", "workbuddy": "app", "kimi-cu": "agent", "kimi-webbridge": "agent", "iphone-use": "agent",
                "agent-desktop": "agent", "mole": "app", "cc-switch": "app"}
 # Monitor kinds are orthogonal to GROUPS: filter what to check, not how it is listed.
 # Defaults keep today's CLI/agent/app checks (runtime) plus future skill/mcp; plugin stays off.
@@ -31,8 +33,12 @@ ROLE_MONITORS = {}
 # signature checks: (bundle name, bundle id, launchd service to restart).
 APP_BUNDLES = {"kimi-cu": ("KimiCU", "ai.kimi.cu", "ai.kimi.cu.service"),
                "cc-switch": ("CC Switch", "com.ccswitch.desktop", "")}
+DESKTOP_APPS = {"claude-desktop": ("Claude", "com.anthropic.claudefordesktop"),
+                "workbuddy": ("WorkBuddy", "com.tencent.workbuddy.mac")}
 DEMO_ROLES = ("claude", "codex", "kimi", "hermes")
 PACKAGES = {
+    "dsh": ("@deepseek-ai/dsh",), "omp": ("@oh-my-pi/pi-coding-agent",),
+    "copilot": ("@github/copilot",),
     "claude": ("@anthropic-ai/claude-code",), "codex": ("@openai/codex",),
     "gemini": ("@google/gemini-cli",), "grok": ("@xai-official/grok",),
     "opencode": ("opencode-ai", "@opencode/cli"), "openclaw": ("openclaw",),
@@ -41,11 +47,12 @@ PACKAGES = {
 }
 SOURCE_LABELS = {
     "npm": "npm", "brew": "Homebrew", "native": "官方原生", "script": "官方脚本",
-    "source": "源码安装", "local": "项目依赖",
+    "bun": "Bun", "source": "源码安装", "local": "项目依赖",
     "app": "官方应用包", "host": "本机配置", "git": "Git 检出",
     "unknown": "来源待确认", "missing": "未安装", "demo": "演示",
 }
 BREW_PACKAGES = {
+    "copilot": {"copilot-cli"}, "omp": {"oh-my-pi"},
     "antigravity-cli": {"antigravity-cli"},
     "claude": {"claude-code", "claude-code@latest"}, "codex": {"codex"},
     "gemini": {"gemini-cli"}, "grok": {"grok"}, "opencode": {"opencode"},
@@ -131,7 +138,9 @@ def classify(role, executable, home=None):
             continue
         result.package = name
         node_modules = next((p for p in parent.parents if p.name == "node_modules"), None)
-        if node_modules and node_modules.parent.name == "lib":
+        if role == "omp" and node_modules == (home / ".bun/install/global/node_modules").resolve():
+            result.source, result.update_supported, result.reason = "bun", True, ""
+        elif node_modules and node_modules.parent.name == "lib":
             prefix = node_modules.parent.parent
             manager = prefix / "bin/npm"
             result.source, result.prefix, result.manager = "npm", str(prefix), str(manager)
@@ -225,16 +234,46 @@ def app_info(bundle):
         with (Path(bundle) / "Contents/Info.plist").open("rb") as file:
             info = plistlib.load(file)
         return {"id": str(info.get("CFBundleIdentifier", "")),
+                "executable": str(info.get("CFBundleExecutable", "")),
                 "version": str(info.get("CFBundleShortVersionString", ""))}
     except (OSError, ValueError, plistlib.InvalidFileException):
         return {}
 
 
-def find_app(role, directories):
-    name, bundle_id, _ = APP_BUNDLES[role]
-    for directory in directories:
-        candidate = Path(directory) / f"{name}.app"
-        if app_info(candidate).get("id") == bundle_id:
+def registered_desktop_paths():
+    """Ask Launch Services about moved or renamed apps without launching them."""
+    ids = [identifier for _, identifier in DESKTOP_APPS.values()]
+    script = ('ObjC.import("AppKit"); JSON.stringify(' + json.dumps(ids) +
+              '.map(id => ObjC.unwrap($.NSWorkspace.sharedWorkspace.'
+              'URLForApplicationWithBundleIdentifier(id).path) || ""))')
+    try:
+        result = subprocess.run(["/usr/bin/osascript", "-l", "JavaScript", "-e", script],
+                                capture_output=True, check=True, text=True, timeout=4)
+        paths = json.loads(result.stdout)
+        return {role: Path(path) for role, path in zip(DESKTOP_APPS, paths)
+                if isinstance(path, str) and Path(path).is_absolute()}
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError):
+        return {}
+
+
+def find_app(role, directories, registered=None):
+    desktop = role in DESKTOP_APPS
+    name, bundle_id = DESKTOP_APPS[role] if desktop else APP_BUNDLES[role][:2]
+    candidates = [Path(directory) / f"{name}.app" for directory in directories]
+    if registered:
+        candidates.append(registered)
+    for candidate in candidates:
+        info = app_info(candidate)
+        if info.get("id") == bundle_id:
+            if desktop:
+                executable = info.get("executable", "")
+                if not executable or Path(executable).name != executable:
+                    continue
+                binary = candidate / "Contents/MacOS" / executable
+                if not binary.is_file() or not os.access(binary, os.X_OK):
+                    continue
+                return Installation(role, str(candidate), "app", version=info["version"],
+                                    reason="由应用内更新器管理")
             return Installation(role, str(candidate), "app", update_supported=True)
     return Installation(role)
 
@@ -257,12 +296,13 @@ def discover(search_path=None, home=None):
             home / ".kimi-webbridge/bin", home / "Applications/iPhoneUse.app/Contents/MacOS",
             Path("/Applications/iPhoneUse.app/Contents/MacOS")))
     app_dirs = os.environ.get("UPALL_APP_DIRS")
+    registered = registered_desktop_paths() if sys.platform == "darwin" and not explicit and app_dirs is None else {}
     app_dirs = ([p for p in app_dirs.split(os.pathsep) if p] if app_dirs is not None else
                 [] if explicit else ["/Applications", str(home / "Applications")])
     found = {}
     for role in TOOLS:
-        if role in APP_BUNDLES:
-            found[role] = find_app(role, app_dirs)
+        if role in APP_BUNDLES or role in DESKTOP_APPS:
+            found[role] = find_app(role, app_dirs, registered.get(role))
             continue
         path = shutil.which("agy" if role == "antigravity-cli" else role, path=search_path)
         if not path and role == "mole":
